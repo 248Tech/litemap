@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LiteMap Embed Example</title>
+  <style>
+    body { margin: 0; font: 14px/1.4 -apple-system, "Segoe UI", sans-serif; display: grid; grid-template-columns: 1fr 320px; height: 100vh; background: #f4f4f6; color: #111; }
+    iframe { width: 100%; height: 100%; border: 0; }
+    aside { padding: 16px; overflow: auto; border-left: 1px solid #ddd; background: #fff; }
+    button { margin: 2px 0; width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+    pre { background: #f4f4f6; padding: 8px; border-radius: 8px; font-size: 12px; white-space: pre-wrap; max-height: 40vh; overflow: auto; }
+    @media (max-width: 760px) { body { grid-template-columns: 1fr; grid-template-rows: 60vh auto; } }
+  </style>
+</head>
+<body>
+  <iframe id="lm" src="/?embed=1" title="LiteMap"></iframe>
+  <aside>
+    <h3>Host page (e.g. your CRM)</h3>
+    <p>This page drives the embedded map with <code>postMessage</code> and listens for changes.</p>
+    <button id="go">Fly to Kansas City</button>
+    <button id="tent">Add a 40×80 ft tent at map center</button>
+    <button id="fit">Zoom to all</button>
+    <button id="state">Get state</button>
+    <button id="save">Save site</button>
+    <h4>Last event</h4>
+    <pre id="log">waiting for litemap:ready…</pre>
+  </aside>
+  <script>
+    const frame = document.getElementById('lm');
+    const send = (msg) => frame.contentWindow.postMessage(msg, location.origin);
+    let center = [-94.5786, 39.0997];
+
+    window.addEventListener('message', (e) => {
+      if (e.source !== frame.contentWindow || e.data?.source !== 'litemap') return;
+      const { type, ...rest } = e.data;
+      if (type === 'litemap:state' && rest.view) center = rest.view.center;
+      const short = type === 'litemap:change' || type === 'litemap:state'
+        ? { ...rest, features: `${rest.features.features.length} feature(s)` } : rest;
+      document.getElementById('log').textContent = `${type}\n${JSON.stringify(short, null, 2)}`;
+    });
+
+    document.getElementById('go').onclick = () => send({ type: 'litemap:setView', center: [-94.5786, 39.0997], meters: 400 });
+    document.getElementById('tent').onclick = () => {
+      send({ type: 'litemap:getState', requestId: 'c' });
+      setTimeout(() => send({
+        type: 'litemap:addFeature',
+        feature: { type: 'Feature', geometry: { type: 'Point', coordinates: center }, properties: { reference: { templateId: 'tent-40x80', clearance: 1.5 } } },
+      }), 100);
+    };
+    document.getElementById('fit').onclick = () => send({ type: 'litemap:fitAll' });
+    document.getElementById('state').onclick = () => send({ type: 'litemap:getState', requestId: 'ui' });
+    document.getElementById('save').onclick = () => send({ type: 'litemap:save' });
+  </script>
+</body>
+</html>

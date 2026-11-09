@@ -1,0 +1,44 @@
+{
+  "name": "litemap",
+  "version": "1.0.0",
+  "description": "Measure sites remotely on satellite imagery: distances, areas, to-scale tents and vehicles, will-it-fit and how-many-fit, with an OpenAPI 3.1 REST API and an embeddable map. Zero dependencies.",
+  "keywords": [
+    "mapbox",
+    "satellite-imagery",
+    "site-survey",
+    "measurement",
+    "area-calculator",
+    "distance-measurement",
+    "geospatial",
+    "gis",
+    "geojson",
+    "openapi",
+    "rest-api",
+    "event-planning",
+    "tent-layout",
+    "site-planning",
+    "remote-site-survey",
+    "aerial-imagery",
+    "self-hosted",
+    "zero-dependencies"
+  ],
+  "homepage": "https://248tech.github.io/litemap/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/248Tech/litemap.git"
+  },
+  "bugs": {
+    "url": "https://github.com/248Tech/litemap/issues"
+  },
+  "license": "MIT",
+  "author": "248Tech (https://248tech.com)",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=22.9" },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server/index.js",
+    "dev": "node --watch --env-file-if-exists=.env server/index.js",
+    "test": "node --test \"test/*.test.js\"",
+    "openapi": "node -e \"import('./server/openapi.js').then(m=>process.stdout.write(JSON.stringify(m.buildOpenApi(process.argv[1]||'/'),null,2)))\" --"
+  }
+}

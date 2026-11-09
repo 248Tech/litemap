@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>LiteMap</title>
+  <meta name="description" content="Measure sites remotely on satellite imagery.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a84ff'/%3E%3Cpath d='M7 23 L16 8 L25 23 Z' fill='none' stroke='white' stroke-width='2.5' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.css">
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.js" onerror="window.__mapboxFailed = true"></script>
+  <script type="module" src="/js/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand" title="LiteMap">
+      <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><path d="M7 23 L16 8 L25 23 Z" fill="none" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/></svg>
+      <span>LiteMap</span>
+    </div>
+    <form id="search-form" class="search" autocomplete="off" role="search">
+      <input id="search" type="search" placeholder="Search address or paste lat, lon" aria-label="Search">
+      <ul id="search-results" class="dropdown" hidden></ul>
+    </form>
+    <input id="site-name" class="site-name" value="Untitled site" aria-label="Site name" maxlength="200">
+    <span id="dirty" class="dirty" title="Unsaved changes" hidden></span>
+    <div class="spacer"></div>
+    <div class="seg" id="units" role="group" aria-label="Units">
+      <button type="button" data-units="imperial">ft</button>
+      <button type="button" data-units="metric">m</button>
+    </div>
+    <select id="map-type" aria-label="Map type">
+      <option value="hybrid">Hybrid</option>
+      <option value="satellite">Satellite</option>
+      <option value="streets">Streets</option>
+      <option value="light">Light</option>
+    </select>
+    <button type="button" id="btn-sites" class="btn hide-embed">Sites</button>
+    <button type="button" id="btn-save" class="btn primary hide-readonly">Save</button>
+    <div class="menu">
+      <button type="button" id="btn-more" class="btn icon" aria-label="More" aria-haspopup="true">⋯</button>
+      <div id="menu-panel" class="menu-panel" hidden>
+        <button type="button" data-act="new" class="hide-embed hide-readonly">New site</button>
+        <button type="button" data-act="import" class="hide-readonly">Import GeoJSON…</button>
+        <hr>
+        <button type="button" data-act="export-geojson">Export GeoJSON</button>
+        <button type="button" data-act="export-csv">Export CSV</button>
+        <button type="button" data-act="copy-summary">Copy summary</button>
+        <button type="button" data-act="snapshot">Satellite snapshot image</button>
+        <hr>
+        <button type="button" data-act="copy-link">Copy site link</button>
+        <button type="button" data-act="copy-embed">Copy embed code</button>
+        <a href="/docs" target="_blank" rel="noopener">API docs ↗</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <nav class="toolbar" aria-label="Tools">
+      <button type="button" class="tool" data-tool="select" title="Select / edit (V)">
+        <svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-2 6z"/></svg><span>Select</span></button>
+      <button type="button" class="tool hide-readonly" data-tool="distance" title="Measure distance (D)">
+        <svg viewBox="0 0 24 24"><path d="M4 18L20 6"/><circle cx="4" cy="18" r="2"/><circle cx="20" cy="6" r="2"/></svg><span>Distance</span></button>
+      <button type="button" class="tool hide-readonly" data-tool="area" title="Measure area (A)">
+        <svg viewBox="0 0 24 24"><path d="M4 7l9-4 7 7-3 10H6z"/></svg><span>Area</span></button>
+      <button type="button" class="tool hide-readonly" data-tool="marker" title="Drop a pin (P)">
+        <svg viewBox="0 0 24 24"><path d="M12 21s-7-6.5-7-12a7 7 0 0114 0c0 5.5-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg><span>Pin</span></button>
+      <button type="button" class="tool hide-readonly" data-tool="reference" title="Place a to-scale object (R)">
+        <svg viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="10" rx="1"/><path d="M4 7l8-4 8 4"/></svg><span>Object</span></button>
+      <button type="button" class="tool hide-readonly" data-tool="text" title="Text box (T)">
+        <svg viewBox="0 0 24 24"><path d="M5 6V4h14v2"/><path d="M12 4v16"/><path d="M9 20h6"/></svg><span>Text</span></button>
+      <button type="button" class="tool hide-readonly" data-tool="drawing" title="Freehand draw (B)">
+        <svg viewBox="0 0 24 24"><path d="M3 20c3-1 4-4 6-6s5-2 6-5-1-5-3-4"/><path d="M15 4l5 5-9 9-5 1 1-5z"/></svg><span>Draw</span></button>
+      <div class="tool-sep"></div>
+      <button type="button" class="tool" id="btn-imagery" title="Imagery layers: newer satellite and aerial sources (I toggles the overlay)">
+        <svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg><span>Imagery</span></button>
+      <button type="button" class="tool hide-readonly" id="btn-undo" title="Undo (Ctrl+Z)">
+        <svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/></svg><span>Undo</span></button>
+      <button type="button" class="tool" id="btn-fit" title="Zoom to all (F)">
+        <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><span>Fit</span></button>
+    </nav>
+
+    <div class="map-wrap">
+      <div id="map"></div>
+      <div id="hint" class="hint" hidden></div>
+      <button type="button" id="imagery-badge" class="imagery-badge" hidden title="Click to open the imagery panel"></button>
+      <div id="coords" class="coords"></div>
+      <div id="setup" class="setup" hidden></div>
+    </div>
+
+    <aside class="panel" id="panel">
+      <button type="button" class="panel-grip" id="panel-grip" aria-label="Toggle panel"></button>
+      <section id="imagery" class="card" hidden></section>
+      <section id="pen" class="card" hidden></section>
+      <section id="catalog" class="card" hidden>
+        <h2>Place a to-scale object</h2>
+        <p class="muted small">Pick an object, then click the map to drop it. Adjust size, rotation, and clearance afterwards. Upload your own (<kbd>U</kbd>) from a photo or drawing.</p>
+        <input id="catalog-filter" type="search" placeholder="Filter objects…" class="input">
+        <div id="catalog-list" class="catalog-list"></div>
+      </section>
+      <section id="inspector" class="card" hidden></section>
+      <section id="list" class="card">
+        <div class="list-head">
+          <h2>Measurements</h2>
+          <label class="toggle small"><input type="checkbox" id="show-labels" checked> Labels</label>
+        </div>
+        <div id="totals" class="totals"></div>
+        <ul id="feature-list" class="feature-list"></ul>
+      </section>
+    </aside>
+  </main>
+
+  <dialog id="sites-dialog" class="dialog">
+    <form method="dialog" class="dialog-inner">
+      <div class="dialog-head">
+        <h2>Sites</h2>
+        <input id="sites-filter" type="search" placeholder="Search sites…" class="input">
+        <button class="btn icon" value="close" aria-label="Close">✕</button>
+      </div>
+      <ul id="sites-list" class="sites-list"></ul>
+    </form>
+  </dialog>
+
+  <dialog id="object-dialog" class="dialog wide" aria-label="Upload object"></dialog>
+
+  <input type="file" id="file-input" accept=".geojson,.json,application/geo+json,application/json" hidden>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

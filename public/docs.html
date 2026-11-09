@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LiteMap API</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui.css">
+  <style>
+    body { margin: 0; background: #fafafa; }
+    .bar { display: flex; align-items: center; gap: 12px; padding: 10px 20px; background: #111214; color: #fff; font: 600 15px -apple-system, "Segoe UI", sans-serif; }
+    .bar a { color: #8ec5ff; font-weight: 500; text-decoration: none; margin-left: auto; }
+    .swagger-ui .topbar { display: none; }
+  </style>
+</head>
+<body>
+  <div class="bar">LiteMap API <a href="/">← Back to the map</a> <a href="/openapi.json" style="margin-left:0">openapi.json</a></div>
+  <div id="swagger"></div>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui-bundle.js"></script>
+  <script>
+    window.ui = SwaggerUIBundle({
+      url: '/openapi.json',
+      dom_id: '#swagger',
+      deepLinking: true,
+      persistAuthorization: true,
+      tryItOutEnabled: true,
+      defaultModelsExpandDepth: 0,
+    });
+  </script>
+</body>
+</html>
