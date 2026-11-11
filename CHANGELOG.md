@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-11
+
+### Fixed
+- Turning on **3D** could leave tents flat on slow connections: the 3D layer waited for every imagery tile to finish downloading and was skipped if they had not. It now goes in as soon as the map's own layers are ready, and retries when the map settles.
+
 ## [1.3.0] - 2026-11-11
 
 ### Added
@@ -70,7 +75,8 @@ First public release.
 - Saved sites showing their last-saved date; GeoJSON and CSV export; static satellite snapshots.
 - Zero runtime dependencies, Node ≥ 22.9, Dockerfile included.
 
-[Unreleased]: https://github.com/248Tech/litemap/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/248Tech/litemap/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/248Tech/litemap/releases/tag/v1.3.1
 [1.3.0]: https://github.com/248Tech/litemap/releases/tag/v1.3.0
 [1.1.0]: https://github.com/248Tech/litemap/releases/tag/v1.1.0
 [1.0.0]: https://github.com/248Tech/litemap/releases/tag/v1.0.0

@@ -280,10 +280,14 @@ function scheduleShapes() {
 /* Tents stand up in 3D (tent3d.js custom layer) when the 3D switch is on. */
 const tents3d = tentLayer();
 function sync3d() {
-  if (!map?.isStyleLoaded()) return; // ensureLayers re-runs this once the style is ready
+  // our layers exist once the style is ready (ensureLayers re-runs this then). Not isStyleLoaded():
+  // that stays false while imagery tiles download, which skipped the 3D layer on slow connections.
+  if (!map?.getLayer('lm-fill')) return;
   const has = Boolean(map.getLayer(tents3d.id));
-  if (!state.show3d) { if (has) map.removeLayer(tents3d.id); return; }
-  if (!has && map.getLayer('lm-fill')) map.addLayer(tents3d);
+  try {
+    if (!state.show3d) { if (has) map.removeLayer(tents3d.id); return; }
+    if (!has) map.addLayer(tents3d);
+  } catch { map.once('idle', sync3d); return; } // style mid-update: try again when the map settles
   tents3d.setTents(state.features
     .filter((f) => f.properties.kind === 'reference' && isTent(f.properties.reference.templateId) && !f.properties.reference.objectId)
     .map((f) => {

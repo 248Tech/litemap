@@ -1,5 +1,5 @@
 /* OpenAPI 3.1 description of the LiteMap API. Served at /openapi.json. */
-export const API_VERSION = '1.3.0';
+export const API_VERSION = '1.3.1';
 
 const ref = (name) => ({ $ref: `#/components/schemas/${name}` });
 const json = (schema) => ({ 'application/json': { schema } });
