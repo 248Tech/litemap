@@ -9,7 +9,7 @@ test('defaults follow the tent size', () => {
   assert.equal(resolveTent(20 * FT, 40 * FT).roof, 'hip');
   const cs = resolveTent(60 * FT, 120 * FT);
   assert.equal(cs.roof, 'gable');
-  near(cs.bay, 5);
+  near(cs.bay, 15 * FT); // Grandchamp / Aztec: 15 ft bays from 30 ft wide
   assert.ok(cs.peak > cs.eave);
   // a peak at or below the legs is lifted just above them
   assert.ok(resolveTent(40 * FT, 40 * FT, { eave: 4, peak: 3 }).peak > 4);

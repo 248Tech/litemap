@@ -3,3 +3,4 @@ data/
 keys/
 *.p8
 .env
+_site/

@@ -26,10 +26,12 @@ const climb = (roof, w, l) => (roof === 'gable' ? w / 2 : Math.min(w, l) / 2);
  */
 export function resolveTent(w, l, t = {}) {
   const roof = ROOFS.includes(t.roof) && t.roof !== 'auto' ? t.roof : autoRoof(w, l);
-  // clearspans (10 m / 33 ft and wider) are built in 5 m bays; frame tents in 10 ft bays
-  const bay = t.bay > 0 ? t.bay : w >= 9.9 ? 5 : 10 * FT;
-  const eave = t.eave > 0 ? t.eave : small(w) ? 8 * FT : w <= 40 * FT + 0.05 ? 10 * FT : w <= 80 * FT + 0.05 ? 12 * FT : 14 * FT;
-  const auto = eave + climb(roof, w, l) * (small(w) ? 0.6 : 0.36);
+  // Defaults from the Grandchamp / Aztec structure drawings: 10 ft standard legs, 4/12 roof pitch
+  // (rise = span / 6, plus the beam depth at the ridge), 15 ft bays from 30 ft wide. Frame tents
+  // (20 ft and under) keep 8 ft legs, 10 ft bays and their steeper pitch.
+  const bay = t.bay > 0 ? t.bay : w >= 30 * FT - 0.05 ? 15 * FT : 10 * FT;
+  const eave = t.eave > 0 ? t.eave : small(w) ? 8 * FT : 10 * FT;
+  const auto = small(w) ? eave + climb(roof, w, l) * 0.6 : eave + climb(roof, w, l) / 3 + 0.15;
   const peak = Math.max(t.peak > 0 ? t.peak : auto, eave + 0.3);
   const walls = {};
   for (const s of SIDES) walls[s] = WALLS.includes(t.walls?.[s]) ? t.walls[s] : 'none';

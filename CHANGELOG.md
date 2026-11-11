@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-11
+
+### Added
+- **Live demo on the website** at https://248tech.github.io/litemap/app/: the real map tool and 3D Modeler running in the browser. Its sites and models are kept in the visitor's browser (localStorage), a sample event layout opens on the first visit, and uploads, imagery capture dates and snapshots explain that they need a LiteMap server. The landing page shows the map tool and the modeler side by side in a new *Try it live* section.
+- `scripts/build-pages.mjs` builds the website into `_site/` and `.github/workflows/pages.yml` deploys it. The demo reuses the server's own validation (`server/features.js`) through `public/js/demo-api.js`. The Mapbox token comes from the `MAPBOX_TOKEN` repository secret and is never committed.
+
+### Fixed
+- 3D tents no longer flicker or glitch at different angles and zoom levels. No two surfaces share a plane any more, see-through walls and window panes are drawn back to front from the actual camera, panes get a depth offset, and the builder and Modeler previews use a real depth buffer (WebGL; the old 2D renderer stays as a fallback).
+
+### Changed
+- More realistic structures, based on the Grandchamp and Aztec engineering drawings:
+  - legs and rafters use the real aluminium sections (Medium 2.4″×7.9″ up to 67 ft wide, XL 4.5″×12″ above that, 2.5″ pipe on frame tents);
+  - every bay line has a rafter, with purlins every 8 ft up the slope, a ridge purlin and posts on the gable ends;
+  - legs stand on 12″ base plates, and cable X-bracing runs in the end bays;
+  - window walls are French-window panels (two 3×6-pane windows per bay), and clear walls have a white header and kick band.
+- Structure defaults follow the same drawings: 10 ft legs, 4/12 roof pitch (peak = leg + width/6), and 15 ft bays from 30 ft wide.
+
 ## [1.1.0] - 2026-11-11
 
 ### Added
@@ -53,6 +70,7 @@ First public release.
 - Saved sites showing their last-saved date; GeoJSON and CSV export; static satellite snapshots.
 - Zero runtime dependencies, Node ≥ 22.9, Dockerfile included.
 
-[Unreleased]: https://github.com/248Tech/litemap/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/248Tech/litemap/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/248Tech/litemap/releases/tag/v1.3.0
 [1.1.0]: https://github.com/248Tech/litemap/releases/tag/v1.1.0
 [1.0.0]: https://github.com/248Tech/litemap/releases/tag/v1.0.0

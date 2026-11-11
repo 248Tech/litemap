@@ -14,7 +14,7 @@ Distances, areas, to-scale tents and vehicles, *will it fit?* and *how many fit?
 [![OpenAPI 3.1](https://img.shields.io/badge/OpenAPI-3.1-6ba539)](#rest-api)
 [![Dependencies: 0](https://img.shields.io/badge/dependencies-0-ff9f0a)](package.json)
 
-[**Website**](https://248tech.github.io/litemap/) · [**Download**](https://github.com/248Tech/litemap/releases/latest) · [Quick start](#quick-start) · [Use cases](#use-cases) · [API](#rest-api) · [Embedding](#embedding)
+[**Live demo**](https://248tech.github.io/litemap/app/) · [**Website**](https://248tech.github.io/litemap/) · [**Download**](https://github.com/248Tech/litemap/releases/latest) · [Quick start](#quick-start) · [Use cases](#use-cases) · [API](#rest-api) · [Embedding](#embedding)
 
 <img src="docs/assets/screenshot-hero.webp" alt="LiteMap: an event layout in a public park with a measured lawn, a closed-street plaza, a 40×80 ft frame tent with 5 ft clearance, vendor tents, and a load-in distance; the side panel shows the largest tent that fits on the lawn" width="100%">
 
@@ -163,7 +163,11 @@ Open **/modeler** (menu **⋯ → 3D Modeler**, or the **3D Modeler** button in 
 
 Ballast is a map-wide display switch (**Ballast** next to **Skins**); a model's own ballast setting applies to its .glb and to the Modeler preview.
 
-Try it online, without installing anything: **[248tech.github.io/litemap/modeler](https://248tech.github.io/litemap/modeler/)**. The online demo models and exports .glb and model files. Saving models and placing them on a map need your own LiteMap server.
+Try it online, without installing anything: **[248tech.github.io/litemap/app/modeler.html](https://248tech.github.io/litemap/app/modeler.html)**.
+
+### Live demo and website
+
+The website and its live demo are built by `node scripts/build-pages.mjs` into `_site/` and deployed by `.github/workflows/pages.yml`. The demo is the real app with `public/js/demo-api.js` answering the REST API in the browser (sites and models live in the visitor's localStorage; uploads, imagery dates and snapshots need a server). Set a **public** Mapbox token as the `MAPBOX_TOKEN` repository secret, ideally URL-restricted to your Pages domain. To preview locally: `node scripts/build-pages.mjs --env` (reads `.env`), then serve `_site/`.
 
 ### Your own catalog
 

@@ -39,7 +39,7 @@
         "description": "Self-hosted web app for measuring sites on satellite imagery: distances, areas, to-scale reference objects such as tents and vehicles, will-it-fit and how-many-fit analysis, imagery capture dates, and an OpenAPI 3.1 REST API.",
         "url": "https://248tech.github.io/litemap/",
         "downloadUrl": "https://github.com/248Tech/litemap/releases/latest",
-        "softwareVersion": "1.1.0",
+        "softwareVersion": "1.3.0",
         "license": "https://opensource.org/licenses/MIT",
         "image": "https://248tech.github.io/litemap/assets/screenshot-hero.webp",
         "screenshot": [
@@ -109,6 +109,14 @@
     section.alt { background: var(--bg-2); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
     h2 { font-size: clamp(26px, 3.4vw, 36px); letter-spacing: -0.02em; margin: 0 0 10px; }
     .sub { color: var(--muted); max-width: 720px; margin: 0 0 36px; font-size: 17px; }
+    .live { display: grid; gap: 20px; grid-template-columns: 1.35fr 1fr; margin-top: 28px; }
+    .live-pane { margin: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--surface); box-shadow: 0 20px 50px #0008; }
+    .live-pane figcaption { display: grid; grid-template-columns: 1fr auto; gap: 2px 14px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .live-pane figcaption b { font-size: 16px; }
+    .live-pane figcaption span { grid-column: 1; color: var(--muted); font-size: 14px; }
+    .live-pane figcaption .btn { grid-column: 2; grid-row: 1 / span 2; padding: 8px 14px; font-size: 14px; }
+    .live-pane iframe { display: block; width: 100%; height: 620px; border: 0; background: #15161a; }
+    @media (max-width: 900px) { .live { grid-template-columns: 1fr; } .live-pane iframe { height: 520px; } }
     .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
     .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; }
     .card h3 { margin: 10px 0 6px; font-size: 17px; }
@@ -160,7 +168,7 @@
       <a class="brand" href="./"><img src="assets/logo.svg" alt="" width="28" height="28">LiteMap</a>
       <nav aria-label="Primary">
         <a href="#features">Features</a>
-        <a href="modeler/">3D tent modeler</a>
+        <a href="#demo">Live demo</a>
         <a href="#use-cases">Use cases</a>
         <a href="#install">Install</a>
         <a href="#api">API</a>
@@ -176,11 +184,12 @@
   <main>
     <div class="hero">
       <div class="wrap">
-        <span class="eyebrow">Open source · MIT · v1.1.0</span>
+        <span class="eyebrow">Open source · MIT · v1.3.0</span>
         <h1>Measure any site from <em>satellite imagery</em>, without a site visit</h1>
         <p class="lead">Measure distances and areas, drop tents, trucks and equipment at true scale, and find out what fits and how many fit, using the newest imagery available. Self-hosted, zero dependencies, with a REST API your other software can call.</p>
         <div class="cta">
-          <a class="btn primary" href="https://github.com/248Tech/litemap/releases/latest">Download v1.1.0</a>
+          <a class="btn primary" href="https://github.com/248Tech/litemap/releases/latest">Download v1.3.0</a>
+          <a class="btn" href="app/">Try the live demo</a>
           <a class="btn" href="#install">Install in 60 seconds</a>
           <a class="btn" href="https://github.com/248Tech/litemap">View on GitHub</a>
         </div>
@@ -196,6 +205,24 @@
         </div>
       </div>
     </div>
+
+    <section id="demo" class="alt">
+      <div class="wrap">
+        <h2>Try it live</h2>
+        <p class="sub">The real app, running in your browser. Measure on satellite imagery and stand tents up in 3D on the map, or design a tent in the 3D modeler and place it on a site. Your work saves in this browser only.</p>
+        <div class="live">
+          <figure class="live-pane">
+            <figcaption><b>Map tool</b><span>Measure, place objects to scale, check what fits, switch on 3D</span><a class="btn primary" href="app/">Open full screen</a></figcaption>
+            <iframe src="app/" title="LiteMap live demo: the map tool" loading="lazy" allow="geolocation; fullscreen"></iframe>
+          </figure>
+          <figure class="live-pane">
+            <figcaption><b>3D tent modeler</b><span>Roof, heights, bays, sidewalls and fabric, with quote quantities and .glb export</span><a class="btn primary" href="app/modeler.html">Open full screen</a></figcaption>
+            <iframe src="app/modeler.html" title="LiteMap live demo: the 3D tent modeler" loading="lazy" allow="fullscreen"></iframe>
+          </figure>
+        </div>
+        <p class="sub" style="margin:20px 0 0;font-size:15px">Uploads, imagery capture dates, snapshots and the REST API need your own LiteMap server. <a href="#install">Install it in 60 seconds.</a></p>
+      </div>
+    </section>
 
     <section id="features" class="alt">
       <div class="wrap">
