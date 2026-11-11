@@ -97,7 +97,7 @@ test('skyfi search request and normalization', async () => {
 
 test('imagery API routes', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'litemap-'));
-  const { server } = await createApp(loadConfig({ DATA_DIR: dir, MAPBOX_TOKEN: 'pk.x', SKYFI_API_KEY: 'sk-test', SKYFI_API_URL: fakeUrl }));
+  const { server } = await createApp(loadConfig({ DATA_DIR: dir, MAPBOX_TOKEN: 'pk.x', SKYFI_API_KEY: 'sk-test', SKYFI_API_URL: fakeUrl, LITEMAP_AUTO_ADDRESS: '0' }));
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}/api/v1`;
   const src = await (await fetch(`${base}/imagery/sources`)).json();

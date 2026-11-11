@@ -1,5 +1,5 @@
 /* OpenAPI 3.1 description of the LiteMap API. Served at /openapi.json. */
-export const API_VERSION = '1.0.0';
+export const API_VERSION = '1.1.0';
 
 const ref = (name) => ({ $ref: `#/components/schemas/${name}` });
 const json = (schema) => ({ 'application/json': { schema } });
@@ -43,6 +43,7 @@ export function buildOpenApi(serverUrl) {
       { name: 'Features', description: 'Individual measurements within a site.' },
       { name: 'Analysis', description: 'Stateless geometry tools.' },
       { name: 'Objects', description: 'Your own to-scale objects: cut-out images with a real-world size.' },
+      { name: 'Models', description: '3D tent models made in the 3D Modeler (`/modeler`): saved as editable recipes, placed on sites as 3D-capable tent references, exported as .glb.' },
       { name: 'Mapbox', description: 'Map configuration, geocoding, and static satellite images.' },
       { name: 'Imagery', description: 'Alternate and newer imagery sources, capture dates, and SkyFi archive search.' },
       { name: 'System' },
@@ -157,6 +158,36 @@ export function buildOpenApi(serverUrl) {
           tags: ['Objects'], operationId: 'getObjectImage', security: [], summary: 'The object image (public, immutable)',
           parameters: [{ name: 'objectId', in: 'path', required: true, schema: { type: 'string' } }],
           responses: { 200: { description: 'Image', content: { 'image/png': {}, 'image/webp': {}, 'image/jpeg': {} } }, ...errors(404) },
+        },
+      },
+      '/api/v1/models': {
+        get: {
+          tags: ['Models'], operationId: 'listModels', summary: 'List saved 3D models',
+          responses: { 200: ok('Models', { type: 'object', properties: { items: { type: 'array', items: ref('Model') } } }), ...errors(401) },
+        },
+        post: {
+          tags: ['Models'], operationId: 'createModel', summary: 'Save a 3D model',
+          description: 'Send the fields below, or a `litemap-model` document exported from the 3D Modeler. To use it on a site, create a `reference` feature with `templateId` `tent-custom` (or the stock `tent-WxL` id), the model\'s `width`, `length` and `tent`, and `properties.color` set to the model\'s `color`. It then shows in 3D on the map like any tent.',
+          requestBody: { required: true, content: json(ref('ModelInput')) },
+          responses: { 201: ok('Created', ref('Model')), ...errors(400, 401) },
+        },
+      },
+      '/api/v1/models/{modelId}': {
+        parameters: [{ name: 'modelId', in: 'path', required: true, schema: { type: 'string' } }],
+        get: { tags: ['Models'], operationId: 'getModel', summary: 'Get a 3D model', responses: { 200: ok('Model', ref('Model')), ...errors(401, 404) } },
+        patch: {
+          tags: ['Models'], operationId: 'updateModel', summary: 'Change a 3D model',
+          requestBody: { required: true, content: json(ref('ModelInput')) },
+          responses: { 200: ok('Model', ref('Model')), ...errors(400, 401, 404) },
+        },
+        delete: { tags: ['Models'], operationId: 'deleteModel', summary: 'Delete a 3D model (placed copies keep working)', responses: { 204: { description: 'Deleted' }, ...errors(401, 404) } },
+      },
+      '/api/v1/models/{modelId}/glb': {
+        get: {
+          tags: ['Models'], operationId: 'getModelGlb', summary: 'Export the model as a glTF binary (.glb)',
+          description: 'Metres, +Y up, ground at y = 0, footprint centred on the origin, front facing +Z. The recipe is embedded in `asset.extras.litemap`, so the 3D Modeler can import the file again.',
+          parameters: [{ name: 'modelId', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: { description: 'glTF 2.0 binary', content: { 'model/gltf-binary': { schema: { type: 'string', format: 'binary' } } } }, ...errors(401, 404) },
         },
       },
       '/api/v1/reference-objects': {
@@ -322,6 +353,22 @@ export function buildOpenApi(serverUrl) {
             objectId: { type: 'string', description: 'Uploaded object (see /objects) drawn as an image on the footprint. The image top edge faces `rotation`; width is left–right, length is top–bottom. Requires shape `rect`.' },
             opacity: { type: 'number', minimum: 0.05, maximum: 1, default: 1, description: 'Image opacity (uploaded objects only).' },
             lockAspect: { type: 'boolean', default: true, description: 'UI hint: corner drags keep the image proportions (uploaded objects only).' },
+            tent: {
+              type: 'object',
+              description: 'Tent builder settings (tent templates `tent-*` only, including `tent-custom` for any size). Omitted fields use defaults for the size: tents up to 20 ft wide get pyramid or hip roofs and 8 ft legs; wider ones get gable roofs with 10–14 ft legs. Bays are 10 ft, or 5 m from 10 m (33 ft) wide. Drives the top-down skin and the 3D view.',
+              properties: {
+                roof: { type: 'string', enum: ['auto', 'pyramid', 'hip', 'gable'] },
+                eave: { type: 'number', minimum: 1.5, maximum: 8, description: 'Leg (eave) height in meters.' },
+                peak: { type: 'number', minimum: 2, maximum: 25, description: 'Ridge or peak height in meters; must be above `eave`.' },
+                bay: { type: 'number', minimum: 1, maximum: 12, description: 'Leg spacing along the walls in meters.' },
+                walls: {
+                  type: 'object', description: 'Sidewall per side. Front is the end facing `rotation`.',
+                  properties: Object.fromEntries(['front', 'back', 'left', 'right'].map((s) => [s, { type: 'string', enum: ['none', 'solid', 'window', 'clear'] }])),
+                  additionalProperties: false,
+                },
+              },
+              additionalProperties: false,
+            },
           },
         },
         UploadedObject: {
@@ -336,6 +383,29 @@ export function buildOpenApi(serverUrl) {
             createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
           },
         },
+        ModelInput: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', maxLength: 200 },
+            width: { type: 'number', minimum: 1, maximum: 200, description: 'Meters across.' },
+            length: { type: 'number', minimum: 1, maximum: 400, description: 'Meters along.' },
+            color: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$', default: '#f6f6f3', description: 'Fabric colour.' },
+            ballast: { type: 'boolean', default: true, description: 'Show a ballast plate with two concrete blocks at every leg.' },
+            tent: { type: 'object', description: 'Same object as `reference.tent` (roof, eave, peak, bay, walls). Omitted fields use defaults for the size.' },
+          },
+          required: ['width', 'length'],
+        },
+        Model: {
+          type: 'object',
+          allOf: [ref('ModelInput'), {
+            type: 'object',
+            properties: {
+              id: { type: 'string' }, format: { const: 'litemap-model' }, version: { const: 1 }, kind: { const: 'tent' },
+              glbUrl: { type: 'string', format: 'uri', description: 'Authenticated .glb download.' },
+              createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
+            },
+          }],
+        },
         FeatureProperties: {
           type: 'object',
           properties: {
@@ -345,6 +415,8 @@ export function buildOpenApi(serverUrl) {
             name: { type: 'string', maxLength: 200 },
             color: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' },
             notes: { type: 'string', maxLength: 5000 },
+            showLabel: { type: 'boolean', default: true, description: 'Set `false` to hide the map label of this feature even when labels are on. Omitted when true.' },
+            showMeasurements: { type: 'boolean', default: false, description: 'Set `true` to keep side lengths (areas, distances, rectangular objects), the diameter (circles) or the path length (drawings) on the map even when the feature is not selected. Omitted when false.' },
             reference: ref('ReferenceParams'),
             data: { type: 'object', description: 'Free-form integration data (<= 16 KB), stored and returned unchanged.' },
           },
@@ -381,7 +453,7 @@ export function buildOpenApi(serverUrl) {
             metadata: { type: 'object', description: 'Free-form integration data (<= 16 KB), e.g. CRM/order ids.' },
             units: { type: 'string', enum: ['imperial', 'metric'] },
             view: { oneOf: [ref('View'), { type: 'null' }] },
-            address: { type: 'string', description: 'Create only: geocoded to set `view` when `view` is absent.' },
+            address: { type: 'string', maxLength: 300, description: 'Street address shown with the site. A non-empty value is kept as typed (on create without `view` it is also geocoded to set the view). An empty string switches back to an automatic address, looked up from the site location on save. Omit it to leave the address unchanged.' },
             features: { oneOf: [ref('FeatureCollectionInput'), { type: 'array', items: ref('FeatureInput') }] },
           },
         },
@@ -398,6 +470,8 @@ export function buildOpenApi(serverUrl) {
           type: 'object', required: ['id', 'name', 'createdAt', 'updatedAt'],
           properties: {
             id: { type: 'string' }, name: { type: 'string' }, description: { type: 'string' },
+            address: { type: 'string', description: 'Street address of the site; empty until one is typed in or found.' },
+            addressAuto: { type: 'boolean', description: '`true` when the address was looked up from the site location (it follows the site if it moves); `false` when it was typed in.' },
             tags: { type: 'array', items: { type: 'string' } }, metadata: { type: 'object' },
             units: { type: 'string', enum: ['imperial', 'metric'] }, view: { oneOf: [ref('View'), { type: 'null' }] },
             createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },

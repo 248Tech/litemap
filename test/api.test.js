@@ -14,7 +14,7 @@ const KEY = 'test-key';
 
 before(async () => {
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'litemap-'));
-  const cfg = loadConfig({ DATA_DIR: dir, MAPBOX_TOKEN: TOKEN, LITEMAP_API_KEY: KEY });
+  const cfg = loadConfig({ DATA_DIR: dir, MAPBOX_TOKEN: TOKEN, LITEMAP_API_KEY: KEY, LITEMAP_AUTO_ADDRESS: '0' });
   ({ server } = await createApp(cfg));
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -148,6 +148,43 @@ test('site + feature lifecycle', async () => {
 
   assert.equal((await call('DELETE', `/api/v1/sites/${s.id}`)).status, 204);
   assert.equal((await call('GET', `/api/v1/sites/${s.id}`)).status, 404);
+});
+
+test('per-feature showLabel and showMeasurements are stored only when set, and validated', async () => {
+  const created = await call('POST', '/api/v1/sites', {
+    name: 'Labels',
+    features: [
+      { type: 'Feature', geometry: { type: 'Point', coordinates: C }, properties: { name: 'Quiet', showLabel: false } },
+      { type: 'Feature', geometry: { type: 'Point', coordinates: C }, properties: { name: 'Loud', showLabel: true } },
+    ],
+  });
+  assert.equal(created.status, 201);
+  const [quiet, loud] = created.body.features.features;
+  assert.equal(quiet.properties.showLabel, false);
+  assert.equal('showLabel' in loud.properties, false);
+  const bad = await call('POST', `/api/v1/sites/${created.body.id}/features`, { type: 'Feature', geometry: { type: 'Point', coordinates: C }, properties: { showLabel: 'no' } });
+  assert.equal(bad.status, 400);
+  const m = await call('POST', `/api/v1/sites/${created.body.id}/features`, { type: 'Feature', geometry: square(C, 20, 10), properties: { showMeasurements: true } });
+  assert.equal(m.status, 201);
+  assert.equal(m.body.properties.showMeasurements, true);
+  const pin = await call('POST', `/api/v1/sites/${created.body.id}/features`, { type: 'Feature', geometry: { type: 'Point', coordinates: C }, properties: { showMeasurements: true } });
+  assert.equal('showMeasurements' in pin.body.properties, false); // pins have nothing to measure
+  assert.equal((await call('POST', `/api/v1/sites/${created.body.id}/features`, { type: 'Feature', geometry: square(C, 5, 5), properties: { showMeasurements: 1 } })).status, 400);
+});
+
+test('tent builder settings are validated and stored only on tents', async () => {
+  const tent = (templateId, t, extra = {}) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: C }, properties: { reference: { templateId, tent: t, ...extra } } });
+  const site = await call('POST', '/api/v1/sites', { name: 'Tents', features: [tent('tent-40x60', { roof: 'auto', peak: 6, walls: { left: 'window', back: 'none' } })] });
+  assert.equal(site.status, 201);
+  assert.deepEqual(site.body.features.features[0].properties.reference.tent, { peak: 6, walls: { left: 'window' } }, 'defaults are not stored');
+  const custom = await call('POST', `/api/v1/sites/${site.body.id}/features`, tent('tent-custom', { roof: 'hip', eave: 3, peak: 5.5, bay: 4 }, { width: 9, length: 14 }));
+  assert.equal(custom.status, 201);
+  assert.equal(custom.body.properties.reference.width, 9);
+  const plain = await call('POST', `/api/v1/sites/${site.body.id}/features`, tent('tent-20x20', {}));
+  assert.equal('tent' in plain.body.properties.reference, false);
+  for (const [tpl, t] of [['car', { roof: 'gable' }], ['tent-20x20', { roof: 'dome' }], ['tent-20x20', { eave: 30 }], ['tent-20x20', { eave: 4, peak: 3 }], ['tent-20x20', { walls: { top: 'solid' } }], ['tent-20x20', { walls: { front: 'mesh' } }]]) {
+    assert.equal((await call('POST', `/api/v1/sites/${site.body.id}/features`, tent(tpl, t))).status, 400, JSON.stringify([tpl, t]));
+  }
 });
 
 test('fit with findLargest, and pack', async () => {

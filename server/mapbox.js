@@ -34,6 +34,26 @@ export async function geocode(mb, q, { language = 'en', country, proximity, limi
 }
 
 /**
+ * Best street address for a coordinate (Geocoding v6 reverse). Returns null when
+ * nothing is found. The most specific match comes first: address, then street,
+ * neighbourhood, place.
+ */
+export async function reverseGeocode(mb, [lon, lat], { language = 'en', timeoutMs = 4000 } = {}) {
+  if (!mb.serverToken) throw notConfigured();
+  const u = new URL('https://api.mapbox.com/search/geocode/v6/reverse');
+  u.searchParams.set('longitude', lon.toFixed(6));
+  u.searchParams.set('latitude', lat.toFixed(6));
+  u.searchParams.set('language', language);
+  u.searchParams.set('access_token', mb.serverToken);
+  const res = await fetch(u, { signal: AbortSignal.timeout(timeoutMs) });
+  if (!res.ok) throw upstream('reverse geocoding', res.status);
+  const f = (await res.json()).features?.[0];
+  if (!f) return null;
+  const p = f.properties || {};
+  return p.full_address || [p.name, p.place_formatted].filter(Boolean).join(', ') || null;
+}
+
+/**
  * Static satellite image URL with the site's features drawn as a GeoJSON overlay
  * (simplestyle properties). Viewport is fitted automatically.
  */

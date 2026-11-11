@@ -38,10 +38,12 @@ Quoting a job usually means driving out with a measuring wheel. LiteMap lets you
 | --- | --- |
 | **Measure** | Distances with per-segment and running totals. Areas in ft² and acres or m² and ha, with perimeter. Vertex snapping, Alt-click to delete a vertex, and full undo. |
 | **To-scale objects** | Frame and structure tents from 10×10 to 100×200 ft, stages, dance floors, cars, trucks, 53′ trailers, containers, lifts, dumpsters, generators, parking stalls, restrooms, tables, sports courts and fields, plus custom rectangles and circles. Set the **clearance** for stakes, guy lines and egress. |
+| **Top-down skins** | Every catalog object is drawn as a to-scale top-down model: tent roofs with bays and legs, vehicles, containers, tables with chairs, and courts with regulation lines. Skins follow rotation and resizing and take the object's colour. Toggle **Skins** off for flat footprints. The catalog carries 90 stock tents: frame and canopy tents from 10×10 to 40×160 ft, clearspans from 50×50 to 120×300 ft, and metric clearspans from 10×10 to 40×100 m. |
+| **3D tent builder** | **Build a tent…** (Object tool, Tents section) designs a tent in an orbitable 3D preview: any width and length, pyramid, hip or gable roof, leg and peak heights, bay spacing, sidewalls per side (open, solid, windows or clear) and fabric colour, with footprint, roof fabric, sidewall length, legs, ballast blocks and interior volume worked out as you go. Placed tents reopen in the builder from the inspector. Switch on **3D** to stand every tent up on the tilted map. |
 | **Site fit** | **Will it fit?** finds the position and rotation with the most margin. **Largest fit** finds the biggest size that still fits. **How many fit?** packs a grid aligned to the area's edges and draws the layout. |
 | **Upload objects** | Drop, paste, or choose an image. LiteMap cuts the object out (AI for photos, colour keying for plain backgrounds) and crops it. Click an object to choose it, or drag a box. Set a known width or length, or stretch the image to exact dimensions. |
 | **Imagery** | Find the newest imagery at the map center. Sources include Esri World Imagery and Wayback, NAIP, county 3-inch aerials, NASA GIBS (HLS Sentinel-2 and Landsat, VIIRS), SkyFi archive search, and custom XYZ or ArcGIS layers. **Enhance** sharpens tiles or upscales them with AI. |
-| **Annotate** | Pins, multi-line text boxes, freehand drawing, colours, notes, and labels. |
+| **Annotate** | Pins, multi-line text boxes, freehand drawing, colours, notes, and labels you can switch off globally or per object. **Show measurements** pins side lengths on any shape or object. |
 | **Share and export** | Saved sites with a link, GeoJSON, CSV, text summary, a static satellite snapshot with your measurements drawn on it, and embed code. |
 | **Integrate** | OpenAPI 3.1 REST API, Swagger UI at `/docs`, an iframe embed mode with a read-only option, a `postMessage` API, API keys, and CORS. |
 
@@ -111,7 +113,7 @@ Keep `DATA_DIR` on persistent storage.
 
 ### Mapbox token
 
-The browser gets the token from `GET /api/v1/map/config` and uses it for satellite tiles and search. The server uses the same token for `/geocode` and `/snapshot`. If you add **URL restrictions** to the token, include every origin that serves LiteMap, and set `MAPBOX_SERVER_TOKEN` to an unrestricted token: server-side calls send no browser Referer, so a URL-restricted token can fail for them.
+The browser gets the token from `GET /api/v1/map/config` and uses it for satellite tiles and search. The server uses the same token for `/geocode`, `/snapshot` and site address lookups. If you add **URL restrictions** to the token, include every origin that serves LiteMap, and set `MAPBOX_SERVER_TOKEN` to an unrestricted token: server-side calls send no browser Referer, so a URL-restricted token can fail for them.
 
 ---
 
@@ -150,6 +152,31 @@ Drop, paste (`Ctrl+V`) or choose an image. Top-down views work best: plan drawin
 - Enter one real dimension and **Keep proportions** fills in the other, or untick it to stretch the image to an exact width × length.
 
 Saved objects appear under **My objects** in the catalog and can be reused on any site. On the map the picture is pinned to the footprint's corners, so it moves, rotates and scales with the handles, and works with all the site-fit tools.
+
+### 3D Modeler
+
+Open **/modeler** (menu **⋯ → 3D Modeler**, or the **3D Modeler** button in the Tents list) for a full-page 3D workspace. It has the same controls as the tent builder: size, roof, leg and peak heights, bays, sidewalls and fabric. It adds a **Ballast** switch (a steel plate with two concrete blocks at every leg), the quantities for a quote, and an export pipeline:
+
+1. **Save to LiteMap** stores the model as an editable recipe in your library (`data/models.json`).
+2. **Place on map** opens the map with the model armed for placement. It is an ordinary tent on the site (size, `reference.tent` and colour), so it stays to scale, works with *Will it fit?* and *How many fit?*, and stands up in 3D when the **3D** switch is on. Saved models also appear under **My models** in the catalog.
+3. **Download .glb** writes a glTF 2.0 binary for Blender, three.js, Windows 3D Viewer and similar tools (metres, +Y up, ground at y = 0, footprint centred, front toward +Z; clear walls and window panes are blended). The recipe is embedded in the file, so **Import…** can bring it back for editing. **Download model file** gives the same recipe as `.litemap-model.json`, which is also what you POST to `/api/v1/models`.
+
+Ballast is a map-wide display switch (**Ballast** next to **Skins**); a model's own ballast setting applies to its .glb and to the Modeler preview.
+
+Try it online, without installing anything: **[248tech.github.io/litemap/modeler](https://248tech.github.io/litemap/modeler/)**. The online demo models and exports .glb and model files. Saving models and placing them on a map need your own LiteMap server.
+
+### Your own catalog
+
+Put your own objects in `data/catalog.json` (for example your company's tent line) and restart. They show first in the object list and in the builder's stock sizes, and the API accepts them. Sizes are in metres. Ids that start with `tent-` get tent skins, the 3D view and the builder, and `tent` sets that tent's roof, heights, bays and walls:
+
+```json
+{ "items": [
+  { "id": "tent-acme-40x60-hip", "category": "Our tents", "name": "40×60 ft hip clearspan",
+    "width": 12.192, "length": 18.288, "tent": { "roof": "hip", "eave": 2.44, "walls": { "back": "solid" } } }
+] }
+```
+
+`data/` is git-ignored, so the list stays private.
 
 ### Imagery: finding the newest picture of a site
 
@@ -198,6 +225,8 @@ If `LITEMAP_API_KEY` is set, send `X-API-Key: <key>` or `Authorization: Bearer <
 | `GET /reference-objects` | Object catalog |
 | `GET/POST /objects` | List or upload your own objects (PNG, WebP or JPEG up to 8 MB; `?name=&width=&length=` in meters) |
 | `GET/PATCH/DELETE /objects/{id}` · `GET /objects/{id}/image` | Object metadata, and the public, immutable image |
+| `GET/POST /models` · `GET/PATCH/DELETE /models/{id}` | Saved 3D tent models from the [3D Modeler](#3d-modeler) (the body is the model fields or an exported `litemap-model` file) |
+| `GET /models/{id}/glb` | The model as a glTF binary (`model/gltf-binary`) |
 | `GET /imagery/sources` · `GET /imagery/dates` | Imagery catalog · capture dates at a point, newest first |
 | `POST /imagery/skyfi/archives` | Search SkyFi's archive for an area (no ordering) |
 | `POST /measure` | Metrics for any Geometry, Feature or FeatureCollection |
@@ -277,6 +306,7 @@ Passing `origin=` pins both the `postMessage` target and the accepted sender. Se
 | --- | --- | --- |
 | `MAPBOX_TOKEN` | | Public Mapbox token (required) |
 | `MAPBOX_SERVER_TOKEN` | `MAPBOX_TOKEN` | Token for server-side geocoding and static images |
+| `LITEMAP_AUTO_ADDRESS` | `1` | Look up each site's street address from its location on save (Mapbox reverse geocoding). `0` turns it off; typed addresses always work |
 | `SKYFI_API_KEY` | | Enables SkyFi archive search |
 | `PORT` / `HOST` | `8787` / `0.0.0.0` | Listen address |
 | `PUBLIC_URL` | from the request | Base URL for links in API responses |
@@ -291,6 +321,7 @@ server/            zero-dependency Node HTTP server
   app.js           routing, handlers, static files
   features.js      validation and normalization of sites and features
   objects.js       uploaded-object library
+  models.js        3D model library (3D Modeler)
   imagery.js       capture-date lookups, SkyFi client
   mapbox.js        geocoding and static images
   openapi.js       OpenAPI 3.1 document
@@ -299,6 +330,8 @@ public/            the web app (plain ES modules, no build)
   js/app.js        UI on Mapbox GL JS
   js/geo.js        geodesy, fit and pack (shared with the server)
   js/references.js object catalog (shared with the server)
+  js/modelfile.js  litemap-model document and .glb export (shared with the server)
+  js/modeler.js    3D Modeler page (modeler.html)
   js/imagery.js    imagery catalog (shared with the server)
   js/*-worker.js   tile enhancement and object cut-out (Web Workers)
   models/          ONNX weights (Real-ESRGAN, U²-Net u2netp)

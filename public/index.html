@@ -21,7 +21,10 @@
       <input id="search" type="search" placeholder="Search address or paste lat, lon" aria-label="Search">
       <ul id="search-results" class="dropdown" hidden></ul>
     </form>
-    <input id="site-name" class="site-name" value="Untitled site" aria-label="Site name" maxlength="200">
+    <div class="site-title">
+      <input id="site-name" class="site-name" value="Untitled site" aria-label="Site name" maxlength="200">
+      <button type="button" id="site-addr" class="site-addr" title="Site address"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg><span></span></button>
+    </div>
     <span id="dirty" class="dirty" title="Unsaved changes" hidden></span>
     <div class="spacer"></div>
     <div class="seg" id="units" role="group" aria-label="Units">
@@ -49,6 +52,7 @@
         <hr>
         <button type="button" data-act="copy-link">Copy site link</button>
         <button type="button" data-act="copy-embed">Copy embed code</button>
+        <a href="/modeler" target="_blank" rel="noopener">3D Modeler ↗</a>
         <a href="/docs" target="_blank" rel="noopener">API docs ↗</a>
       </div>
     </div>
@@ -101,7 +105,10 @@
       <section id="list" class="card">
         <div class="list-head">
           <h2>Measurements</h2>
-          <label class="toggle small"><input type="checkbox" id="show-labels" checked> Labels</label>
+          <span class="row"><label class="toggle small"><input type="checkbox" id="show-labels" checked> Labels</label>
+          <label class="toggle small" title="Draw catalog objects as top-down models"><input type="checkbox" id="show-skins" checked> Skins</label>
+          <label class="toggle small" title="Show ballast plates and concrete blocks at every tent leg (needs Skins)"><input type="checkbox" id="show-ballast" checked> Ballast</label>
+          <label class="toggle small" title="Stand tents up in 3D and tilt the map (right-drag to tilt and turn)"><input type="checkbox" id="show-3d"> 3D</label></span>
         </div>
         <div id="totals" class="totals"></div>
         <ul id="feature-list" class="feature-list"></ul>
@@ -121,6 +128,7 @@
   </dialog>
 
   <dialog id="object-dialog" class="dialog wide" aria-label="Upload object"></dialog>
+  <dialog id="tent-dialog" class="dialog wide" aria-label="Tent builder"></dialog>
 
   <input type="file" id="file-input" accept=".geojson,.json,application/geo+json,application/json" hidden>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>

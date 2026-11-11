@@ -1,6 +1,7 @@
 /* Validation + normalization of sites and features. Metrics are always recomputed server-side. */
 import { measureGeometry, footprintRing, centroid, closeRing, normDeg, openRing } from '../public/js/geo.js';
 import { REFERENCE_BY_ID } from '../public/js/references.js';
+import { ROOFS, WALLS, SIDES, LIMITS, isTent, cleanTent } from '../public/js/tentspec.js';
 import { newId } from './store.js';
 
 export class HttpError extends Error {
@@ -12,6 +13,26 @@ export class HttpError extends Error {
   }
 }
 const bad = (msg, details) => { throw new HttpError(400, 'invalid_request', msg, details); };
+
+/** Tent builder settings: roof style, leg/peak heights and bay spacing (metres), sidewalls per side. */
+export function validateTent(t) {
+  if (!isObj(t)) bad('reference.tent must be an object');
+  if (t.roof != null && !ROOFS.includes(t.roof)) bad(`reference.tent.roof must be one of ${ROOFS.join(', ')}`);
+  for (const k of ['bay', 'eave', 'peak']) {
+    if (t[k] == null) continue;
+    const [min, max] = LIMITS[k];
+    if (typeof t[k] !== 'number' || !Number.isFinite(t[k]) || t[k] < min || t[k] > max) bad(`reference.tent.${k} must be a number of metres from ${min} to ${max}`);
+  }
+  if (t.eave != null && t.peak != null && t.peak <= t.eave) bad('reference.tent.peak must be higher than reference.tent.eave');
+  if (t.walls != null) {
+    if (!isObj(t.walls)) bad('reference.tent.walls must be an object');
+    for (const [side, kind] of Object.entries(t.walls)) {
+      if (!SIDES.includes(side)) bad(`reference.tent.walls: unknown side ${side} (use ${SIDES.join(', ')})`);
+      if (!WALLS.includes(kind)) bad(`reference.tent.walls.${side} must be one of ${WALLS.join(', ')}`);
+    }
+  }
+  return cleanTent(t);
+}
 
 export const KINDS = ['distance', 'area', 'marker', 'reference', 'text', 'drawing'];
 export const DEFAULT_COLORS = { distance: '#ffd60a', area: '#30d158', marker: '#ff453a', reference: '#64d2ff', text: '#ffffff', drawing: '#ff9f0a' };
@@ -97,6 +118,10 @@ export function normalizeFeature(input, index = 0) {
     color,
     notes: str(p.notes, 5000, 'properties.notes'),
   };
+  if (p.showLabel != null && typeof p.showLabel !== 'boolean') bad('properties.showLabel must be a boolean');
+  if (p.showLabel === false && kind !== 'text') props.showLabel = false;
+  if (p.showMeasurements != null && typeof p.showMeasurements !== 'boolean') bad('properties.showMeasurements must be a boolean');
+  if (p.showMeasurements === true && ['distance', 'area', 'reference', 'drawing'].includes(kind)) props.showMeasurements = true;
   const data = jsonBlob(p.data, 'properties.data');
   if (data) props.data = data;
 
@@ -124,6 +149,12 @@ export function normalizeFeature(input, index = 0) {
       props.reference.opacity = finite(r.opacity ?? 1, 'reference.opacity', { min: 0.05, max: 1 });
       props.reference.lockAspect = r.lockAspect !== false;
     }
+    if (r.tent != null) {
+      if (!isTent(tpl?.id)) bad('reference.tent is only allowed on tent templates (tent-*)');
+      props.reference.tent = validateTent(r.tent);
+      if (!props.reference.tent) delete props.reference.tent;
+    } else if (tpl?.tent) props.reference.tent = cleanTent(tpl.tent) ?? undefined; // a catalog tent's own roof, heights and walls
+    if (props.reference.tent === undefined) delete props.reference.tent;
     geometry = { type: 'Polygon', coordinates: [footprintRing({ center, shape, width, length, rotation })] };
     if (!props.name) props.name = tpl?.name ?? 'Reference object';
   } else {
@@ -191,6 +222,15 @@ export function normalizeSiteFields(input, base = {}) {
     }
   }
   if ('features' in input) out.features = normalizeFeatureList(input.features);
+  if ('address' in input) {
+    const a = input.address == null ? '' : str(input.address, 300, 'address');
+    if (a) Object.assign(out, { address: a, addressAuto: false, addressPoint: null });
+    // empty = "look it up from the map"; an address that is already automatic is kept
+    else if (base.addressAuto === false || !base.address) Object.assign(out, { address: '', addressAuto: true, addressPoint: null });
+  }
+  out.address ??= '';
+  out.addressAuto ??= true;
+  out.addressPoint ??= null;
   out.description ??= '';
   out.tags ??= [];
   out.metadata ??= {};
@@ -218,8 +258,8 @@ export function summarize(features) {
 
 /** Public representation of a stored site. */
 export function presentSite(site, { withFeatures = true } = {}) {
-  const { features, ...rest } = site;
-  const out = { ...rest, summary: summarize(features) };
+  const { features, addressPoint: _ap, ...rest } = site;
+  const out = { ...rest, address: site.address || '', addressAuto: site.addressAuto !== false, summary: summarize(features) };
   if (withFeatures) out.features = { type: 'FeatureCollection', features };
   return out;
 }

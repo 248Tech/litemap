@@ -2,8 +2,12 @@
  * LiteMap UI: Mapbox GL JS + shared geodesy core. No build step, no dependencies.
  */
 import * as geo from './geo.js';
-import { REFERENCE_OBJECTS, REFERENCE_CATEGORIES, REFERENCE_BY_ID } from './references.js';
+import { REFERENCE_OBJECTS, REFERENCE_CATEGORIES, REFERENCE_BY_ID, addReferenceObjects } from './references.js';
 import { openObjectDialog, objectThumb } from './object-upload.js';
+import { skinUrl, skinThumb, hasSkin, ballastPad } from './skins.js';
+import { isTent, cleanTent, resolveTent } from './tentspec.js';
+import { tentLayer } from './tent3d.js';
+import { openTentBuilder } from './tent-builder.js';
 import { IMAGERY_SOURCES, IMAGERY_BY_ID, tileUrls, tileSizeOf, defaultGibsDate, customSource, coversBox } from './imagery.js';
 
 /* ================================================================ setup */
@@ -38,6 +42,9 @@ const state = {
   units: params.get('units') || ls.get('litemap:units', 'imperial'),
   mapType: ls.get('litemap:mapType', 'hybrid'),
   showLabels: ls.get('litemap:labels', true),
+  showSkins: ls.get('litemap:skins', true),
+  showBallast: ls.get('litemap:ballast', true),
+  show3d: ls.get('litemap:3d', false),
   site: blankSite(),
   dirty: false,
   draft: null,           // { kind, coords: [[lon,lat]...] }
@@ -46,8 +53,9 @@ const state = {
   pen: { color: '#ff9f0a', width: 4, ...ls.get('litemap:pen', {}) },
   objects: [],           // uploaded object library (cut-out images with a real size)
   objectsLoaded: false,
+  models: [],            // saved 3D models from the 3D Modeler (/modeler)
 };
-function blankSite() { return { id: null, name: 'Untitled site', description: '', tags: [], metadata: {} }; }
+function blankSite() { return { id: null, name: 'Untitled site', address: '', addressAuto: true, description: '', tags: [], metadata: {} }; }
 
 let map = null;
 const views = new Map();
@@ -126,6 +134,35 @@ function refresh(f) {
 }
 
 /** Client-side normalization for imports, postMessage, and catalog placement. */
+/** Kinds whose side lengths / size can be pinned on the map with "Show measurements". */
+const MEASURABLE = new Set(['distance', 'area', 'reference', 'drawing']);
+
+/**
+ * Labels are HTML, so they keep their pixel size while the map shrinks under them.
+ * Publish the zoom to CSS: --lm-ppm (screen pixels per metre, to fade labels whose object is too
+ * small to hold them) and --lm-k (shrinks all map text a little as you zoom out).
+ */
+function labelScale() {
+  const z = map.getZoom(), lat = map.getCenter().lat;
+  const ppm = 2 ** z / (78271.517 * Math.cos((lat * Math.PI) / 180));
+  const el = map.getContainer();
+  el.style.setProperty('--lm-ppm', ppm.toFixed(4));
+  el.style.setProperty('--lm-k', Math.min(1, Math.max(0.6, 0.6 + (z - 17) * 0.2)).toFixed(3));
+}
+
+/** Always-on measurement labels for a feature (side lengths, diameter, or path length). */
+function measurementLabels(f, pts) {
+  const p = f.properties, k = p.kind;
+  if (k === 'distance' || k === 'area') return segmentLabels(pts, k === 'area');
+  if (k === 'drawing') return [{ coord: geo.pointAlong(pts, 0.5), cls: 'lm-label lm-seg', text: fmtL(p.metrics.lengthM), span: p.metrics.lengthM }];
+  if (k === 'reference') {
+    const r = p.reference;
+    if (r.shape === 'circle') return [{ coord: geo.offset(r.center, r.width / 2, r.rotation + 180), cls: 'lm-label lm-seg', text: `⌀ ${fmtL(r.width)}`, span: r.width }];
+    return segmentLabels(pts, true);
+  }
+  return [];
+}
+
 function normalize(input, i = state.features.length) {
   const f = input.type === 'Feature' ? structuredClone(input) : { type: 'Feature', geometry: structuredClone(input), properties: {} };
   const p = (f.properties ||= {});
@@ -136,6 +173,8 @@ function normalize(input, i = state.features.length) {
   delete p.id;
   p.color = /^#[0-9a-f]{6}$/i.test(p.color || '') ? p.color : DEFAULT_COLORS[kind];
   p.notes ||= '';
+  if (p.showLabel === false && kind !== 'text') p.showLabel = false; else delete p.showLabel;
+  if (p.showMeasurements === true && MEASURABLE.has(kind)) p.showMeasurements = true; else delete p.showMeasurements;
   if (kind === 'reference') {
     const r = (p.reference ||= {});
     const tpl = REFERENCE_BY_ID[r.templateId];
@@ -151,6 +190,8 @@ function normalize(input, i = state.features.length) {
       r.opacity = clamp(r.opacity, 0.05, 1, 1);
       r.lockAspect = r.lockAspect !== false;
     }
+    const tent = isTent(r.templateId) && !r.objectId ? cleanTent(r.tent) : null;
+    if (tent) r.tent = tent; else delete r.tent;
     p.name ||= tpl?.name || 'Object';
   } else if (kind === 'text') {
     p.text = String(p.text ?? 'Text').slice(0, 1000);
@@ -218,7 +259,8 @@ function styleFor(f, selected) {
   const c = f.properties.color, k = f.properties.kind;
   if (k === 'distance') return { stroke: c, width: selected ? 4 : 3 };
   if (k === 'area') return { stroke: c, fill: c, fillOpacity: selected ? 0.3 : 0.18, width: selected ? 3 : 2 };
-  if (f.properties.reference?.objectId) return { stroke: c, strokeOpacity: selected ? 1 : 0.55, width: selected ? 2 : 1, fill: c, fillOpacity: 0 };
+  const r = f.properties.reference;
+  if (r?.objectId || (r && skinned(r))) return { stroke: c, strokeOpacity: selected ? 1 : 0.55, width: selected ? 2 : 1, fill: c, fillOpacity: 0 };
   return { stroke: c, fill: c, fillOpacity: selected ? 0.5 : 0.38, width: selected ? 2.5 : 1.5 };
 }
 const dashed = (c, w = 1.5) => ({ stroke: c, width: w, dash: true, fill: c, fillOpacity: 0.06 });
@@ -235,7 +277,36 @@ function scheduleShapes() {
   if (shapesRaf) return;
   shapesRaf = requestAnimationFrame(() => { shapesRaf = 0; flushShapes(); });
 }
+/* Tents stand up in 3D (tent3d.js custom layer) when the 3D switch is on. */
+const tents3d = tentLayer();
+function sync3d() {
+  if (!map?.isStyleLoaded()) return; // ensureLayers re-runs this once the style is ready
+  const has = Boolean(map.getLayer(tents3d.id));
+  if (!state.show3d) { if (has) map.removeLayer(tents3d.id); return; }
+  if (!has && map.getLayer('lm-fill')) map.addLayer(tents3d);
+  tents3d.setTents(state.features
+    .filter((f) => f.properties.kind === 'reference' && isTent(f.properties.reference.templateId) && !f.properties.reference.objectId)
+    .map((f) => {
+      const r = f.properties.reference;
+      return { center: r.center, rotation: r.rotation, width: r.width, length: r.length, tent: r.tent, color: skinTint(r, f.properties.color) || '#f6f6f3', ballast: state.showBallast };
+    }));
+}
+function set3d(on) {
+  state.show3d = on;
+  ls.set('litemap:3d', on);
+  $('#show-3d').checked = on;
+  if (map) {
+    // right-drag / ctrl-drag tilts only in 3D (private Mapbox flag; the switch still tilts if it changes)
+    try { map.dragRotate._pitchWithRotate = on; map.dragRotate.disable(); map.dragRotate.enable(); } catch { /* ignore */ }
+    if (on) map.touchPitch.enable(); else map.touchPitch.disable();
+    map.easeTo({ pitch: on ? Math.max(map.getPitch(), 55) : 0, duration: 700 });
+  }
+  syncAllViews();
+  sync3d();
+}
+
 function flushShapes() {
+  sync3d();
   const src = map?.getSource(SRC);
   if (!src) return;
   const features = [];
@@ -299,6 +370,21 @@ function removeObjImage(id) {
 /** Mapbox image corners (TL, TR, BR, BL) from a footprint ring [BL, BR, TR, TL]: the image top is the object's front. */
 const imageCorners = (pts) => [pts[3], pts[2], pts[1], pts[0]].map((p) => [p[0], p[1]]);
 
+/* Catalog objects get a procedurally drawn top-down skin (skins.js) on the same image layers. */
+const skinned = (r) => state.showSkins && !r.objectId && hasSkin(r.templateId);
+/** Tint only when the user picked a colour other than the catalog default. */
+const skinTint = (r, color) => (color && color !== REFERENCE_BY_ID[r.templateId]?.color && color !== DEFAULT_COLORS.reference ? color : null);
+/** Tents carry ballast plates outside the wall line, so their skin image is padded on every side. */
+const skinPad = (r) => (state.showBallast ? ballastPad(r.templateId) : 0);
+const skinCorners = (r, center = r.center, rotation = r.rotation) => imageCorners(geo.openRing(geo.footprintRing({
+  center, shape: 'rect', width: r.width + 2 * skinPad(r), length: (r.shape === 'circle' ? r.width : r.length) + 2 * skinPad(r), rotation,
+})));
+function skinSpec(r, color, center = r.center, rotation = r.rotation, opacity = 1) {
+  const opts = isTent(r.templateId) ? { tent: r.tent, floor: state.show3d } : {};
+  const url = skinUrl(r.templateId, r.width, r.shape === 'circle' ? r.width : r.length, skinTint(r, color), skinPad(r), opts);
+  return url ? { url, coordinates: skinCorners(r, center, rotation), opacity } : null;
+}
+
 class View {
   constructor(id) { this.id = id; this.keys = new Set(); this.anns = {}; }
 
@@ -338,6 +424,7 @@ class View {
       if (item.content !== content) { el.innerHTML = content; item.content = content; }
       el.style.setProperty('--c', s.c || '');
       el.style.setProperty('--fs', s.fs ? `${s.fs}px` : '');
+      el.style.setProperty('--m', s.span > 0 ? String(s.span) : ''); // metres the label sits on; CSS fades it when that is too few pixels
       const data = s.data || {};
       for (const k of Object.keys(el.dataset)) if (!(k in data)) delete el.dataset[k];
       for (const [k, v] of Object.entries(data)) if (el.dataset[k] !== String(v)) el.dataset[k] = v;
@@ -350,6 +437,7 @@ class View {
     if (any) scheduleShapes();
     Object.values(this.anns).flat().forEach((a) => a.marker.remove());
     removeObjImage(`lm-obj-${this.id}`);
+    for (const k of [...objImages.keys()]) if (k.startsWith(`lm-obj-${this.id}:`)) removeObjImage(k);
     this.keys.clear(); this.anns = {};
   }
 }
@@ -359,7 +447,8 @@ function segmentLabels(pts, closed) {
   const n = closed ? pts.length : pts.length - 1;
   for (let i = 0; i < n; i++) {
     const a = pts[i], b = pts[(i + 1) % pts.length];
-    out.push({ coord: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], cls: 'lm-label lm-seg', text: fmtL(geo.distance(a, b)) });
+    const d = geo.distance(a, b);
+    out.push({ coord: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], cls: 'lm-label lm-seg', text: fmtL(d), span: d });
   }
   return out;
 }
@@ -374,21 +463,30 @@ function renderFeature(f) {
   const pts = verts(f);
   const fid = f.id;
   const labels = [], handles = [];
+  const showLbl = p.showLabel !== false && (state.showLabels || sel); // per-object switch beats the global toggle
 
   if (k === 'distance') {
     v.overlay('main', 'polyline', pts, styleFor(f, sel));
-    if (state.showLabels || sel) labels.push({ coord: geo.pointAlong(pts, 0.5), cls: 'lm-label', c, text: fmtL(p.metrics.lengthM), data: { fid } });
+    if (showLbl) labels.push({ coord: geo.pointAlong(pts, 0.5), cls: 'lm-label', c, text: fmtL(p.metrics.lengthM), span: sel ? null : p.metrics.lengthM, data: { fid } });
   } else if (k === 'area') {
     v.overlay('main', 'polygon', pts, styleFor(f, sel));
-    if (state.showLabels || sel) labels.push({ coord: geo.centroid(pts), cls: 'lm-label', c, text: fmtA(p.metrics.areaM2), data: { fid } });
+    if (showLbl) labels.push({ coord: geo.centroid(pts), cls: 'lm-label', c, text: fmtA(p.metrics.areaM2), span: sel ? null : Math.sqrt(p.metrics.areaM2), data: { fid } });
   } else if (k === 'reference') {
     const r = p.reference;
     v.overlay('main', 'polygon', pts, styleFor(f, sel));
     v.overlay('clear', 'polygon', r.clearance > 0 ? geo.openRing(geo.footprintRing(r)) : null, dashed(c));
-    if (r.objectId) putObjImage(`lm-obj-${f.id}`, { url: objImageUrl(r.objectId), coordinates: imageCorners(pts), opacity: r.opacity ?? 1 });
-    else removeObjImage(`lm-obj-${f.id}`);
-    if ((state.showLabels || sel) && !edit) {
-      labels.push({ coord: r.center, cls: 'lm-label', c, text: `${shortName(p.name)} · ${geo.fmtDims(r.width, r.length, state.units, r.shape)}`, data: { fid } });
+    const imgId = `lm-obj-${f.id}`;
+    if (r.objectId) putObjImage(imgId, { url: objImageUrl(r.objectId), coordinates: imageCorners(pts), opacity: r.opacity ?? 1 });
+    else if (skinned(r)) {
+      // while a corner is dragged, stretch the current skin; it is redrawn at the new size on release
+      const prev = objImages.get(imgId);
+      const spec = drag?.fid === f.id && drag.type === 'resize' && prev
+        ? { ...prev, coordinates: skinCorners(r) }
+        : skinSpec(r, c);
+      if (spec) putObjImage(imgId, spec); else removeObjImage(imgId);
+    } else removeObjImage(imgId);
+    if (showLbl && !edit) {
+      labels.push({ coord: r.center, cls: 'lm-label', c, text: `${shortName(p.name)} · ${geo.fmtDims(r.width, r.length, state.units, r.shape)}`, span: sel ? null : Math.max(r.width, r.length || 0), data: { fid } });
     }
   } else if (k === 'drawing') {
     v.overlay('main', 'polyline', pts, { stroke: c, width: p.style.width + (sel ? 1.5 : 0) });
@@ -400,12 +498,13 @@ function renderFeature(f) {
   } else if (k === 'marker') {
     labels.push({
       coord: pts[0], cls: `lm-pin${sel ? ' sel' : ''}`, c,
-      html: `<span>${state.showLabels || sel ? esc(p.name) : ''}</span><i></i>`,
+      html: `<span>${showLbl ? esc(p.name) : ''}</span><i></i>`,
       data: edit ? { fid, handle: 'move' } : { fid },
     });
   }
 
-  const segs = sel && (k === 'distance' || k === 'area') ? segmentLabels(pts, k === 'area') : [];
+  const segs = p.showMeasurements ? measurementLabels(f, pts)
+    : sel && (k === 'distance' || k === 'area') ? segmentLabels(pts, k === 'area') : [];
 
   if (edit && (k === 'distance' || k === 'area')) {
     const closed = k === 'area';
@@ -550,7 +649,7 @@ function placeReference(ll) {
       kind: 'reference', name: tpl.name, color: tpl.color,
       reference: tpl.objectId
         ? { templateId: null, objectId: tpl.objectId, shape: 'rect', width: tpl.width, length: tpl.length, rotation, opacity: 1, lockAspect: true }
-        : { templateId: tpl.id, shape: tpl.shape, width: tpl.width, length: tpl.length, rotation },
+        : { templateId: tpl.id, shape: tpl.shape, width: tpl.width, length: tpl.length, rotation, ...(tpl.tent ? { tent: tpl.tent } : {}) },
     },
   });
   clearScratch('__ghost');
@@ -564,6 +663,10 @@ function renderGhost() {
   const ring = geo.footprintRing({ center: cursorLL, shape: t.shape, width: t.width, length: t.length, rotation: geo.normDeg(Math.round(map.getBearing())) });
   scratchView('__ghost').overlay('g', 'polygon', geo.openRing(ring), dashed(t.color, 2));
   if (t.objectId) putObjImage('lm-obj-__ghost', { url: objImageUrl(t.objectId), coordinates: imageCorners(geo.openRing(ring)), opacity: 0.65 });
+  else if (state.showSkins) {
+    const spec = skinSpec({ templateId: t.id, shape: t.shape, width: t.width, length: t.length, tent: t.tent }, t.built ? t.color : null, cursorLL, geo.normDeg(Math.round(map.getBearing())), 0.7);
+    if (spec) putObjImage('lm-obj-__ghost', spec);
+  }
 }
 
 /* ================================================================ pointer input */
@@ -977,6 +1080,66 @@ function totals() {
   return t;
 }
 
+/* ================================================================ tent builder */
+function tentSummary(r) {
+  const spec = resolveTent(r.width, r.length, r.tent);
+  const walls = Object.entries(spec.walls).filter(([, k]) => k !== 'none');
+  const wallTxt = !walls.length ? 'no sidewalls'
+    : walls.length === 4 && new Set(walls.map(([, k]) => k)).size === 1 ? `${walls[0][1]} walls all round`
+      : walls.map(([side, k]) => `${side} ${k}`).join(', ');
+  return `${spec.roof[0].toUpperCase()}${spec.roof.slice(1)} roof · ${fmtL(spec.peak)} peak · ${fmtL(spec.eave)} legs · ${wallTxt}`;
+}
+function tentCard(r) {
+  return `<div class="field"><label>Tent</label><div class="tent-card"><span class="muted small">${esc(tentSummary(r))}</span>
+    ${READONLY ? '' : '<button type="button" class="btn sm" data-act="tent-builder">Open tent builder…</button>'}</div></div>`;
+}
+// built-in sizes only: a company catalog entry carries its own roof and walls, so a built tent never silently becomes one
+const stockTentFor = (w, l) => REFERENCE_OBJECTS.filter((o) => isTent(o.id) && o.id !== 'tent-custom' && !o.tent).find((o) => Math.abs(o.width - w) < 0.02 && Math.abs(o.length - l) < 0.02) || null;
+const tentName = (w, l) => (state.units === 'metric'
+  ? `Tent ${+w.toFixed(1)}×${+l.toFixed(1)} m`
+  : `Tent ${Math.round(w / 0.3048)}×${Math.round(l / 0.3048)} ft`);
+
+/** Catalog "Build a tent…": design one, then place it like any catalog object. */
+async function buildTent() {
+  const prev = state.template && isTent(state.template.id) ? state.template : null;
+  const res = await openTentBuilder({
+    units: state.units, mode: 'place', ballast: state.showBallast,
+    init: prev ? { width: prev.width, length: prev.length, tent: prev.tent, color: prev.built ? prev.color : undefined } : {},
+  });
+  if (!res) return;
+  const stock = stockTentFor(res.width, res.length);
+  state.template = {
+    id: stock?.id || 'tent-custom', category: REFERENCE_BY_ID['tent-custom'].category, name: tentName(res.width, res.length),
+    shape: 'rect', width: res.width, length: res.length, color: res.color, tent: res.tent || undefined, built: true,
+  };
+  if (state.tool !== 'reference') setTool('reference');
+  renderCatalog();
+  updateHint();
+  toast('Click the map to place your tent');
+}
+
+/** Inspector "Open tent builder…" on a placed tent. */
+async function editTent(f) {
+  const r = f.properties.reference;
+  const res = await openTentBuilder({
+    units: state.units, mode: 'edit', ballast: state.showBallast,
+    init: { width: r.width, length: r.length, tent: r.tent, color: skinTint(r, f.properties.color) || '#f6f6f3' },
+  });
+  if (!res || !byId(f.id)) return;
+  pushUndo();
+  const p = f.properties;
+  const wasDefaultName = !p.name || p.name === REFERENCE_BY_ID[r.templateId]?.name || p.name === tentName(r.width, r.length);
+  const stock = stockTentFor(res.width, res.length);
+  const sameSize = Math.abs(res.width - r.width) < 0.02 && Math.abs(res.length - r.length) < 0.02;
+  r.templateId = stock?.id || (sameSize ? r.templateId : 'tent-custom');
+  r.width = res.width; r.length = res.length;
+  if (res.tent) r.tent = res.tent; else delete r.tent;
+  p.color = res.color === '#f6f6f3' ? REFERENCE_BY_ID[r.templateId].color : res.color;
+  if (wasDefaultName) p.name = stock?.name || tentName(res.width, res.length);
+  refresh(f);
+  changed({ ids: [f.id] });
+}
+
 /* ================================================================ panel: catalog */
 const objTemplate = (o) => ({ id: `obj:${o.id}`, objectId: o.id, category: 'My objects', name: o.name, shape: 'rect', width: o.width, length: o.length, color: '#64d2ff' });
 const objectById = (id) => state.objects.find((o) => o.id === id) || null;
@@ -994,6 +1157,39 @@ async function loadObjects({ quiet = false } = {}) {
     if (state.tool === 'reference') renderCatalog();
     if (byId(state.selectedId)?.properties.reference?.objectId) renderInspector();
   } catch (e) { if (!quiet) toast(e.message, true); }
+}
+
+/* Saved 3D models (3D Modeler) are placed as ordinary tent references, so they keep their 3D look and stay editable. */
+const modelById = (id) => state.models.find((m) => m.id === id) || null;
+const modelTemplate = (m) => {
+  const stock = stockTentFor(m.width, m.length);
+  return {
+    id: stock?.id || 'tent-custom', category: 'My models', name: m.name, shape: 'rect', width: m.width, length: m.length,
+    color: m.color, tent: m.tent || undefined, built: true, modelId: m.id,
+  };
+};
+
+async function loadModels() {
+  try {
+    const headers = state.apiKey ? { 'X-API-Key': state.apiKey } : {};
+    const res = await fetch('/api/v1/models', { headers });
+    if (!res.ok) return;
+    state.models = (await res.json()).items;
+    if (state.tool === 'reference') renderCatalog();
+  } catch { /* models are optional */ }
+}
+
+/** `/?model=<id>` (the Modeler's "Place on map") arms that model for placement. */
+function openModelFromUrl() {
+  const id = params.get('model');
+  if (!id || READONLY || EMBED) return;
+  const m = modelById(id);
+  const u = new URL(location.href); u.searchParams.delete('model');
+  history.replaceState(null, '', u);
+  if (!m) return toast('That saved model no longer exists', true);
+  state.template = modelTemplate(m);
+  setTool('reference');
+  toast(`Click the map to place “${m.name}”`);
 }
 
 async function uploadObject(file) {
@@ -1035,15 +1231,25 @@ function renderCatalog() {
         ${objectThumb(o)}<span>${esc(o.name)}</span><small>${esc(geo.fmtDims(o.width, o.length, state.units, 'rect'))}</small>
         ${READONLY ? '' : `<button type="button" class="obj-del" data-obj-del="${esc(o.id)}" title="Remove from My objects" aria-label="Remove">✕</button>`}
       </div>`).join('')}` : '';
+  const models = state.models.filter((m) => !q || `${m.name} my models 3d`.toLowerCase().includes(q));
+  const modelsHtml = models.length ? `<h3>My models<a class="btn sm" href="/modeler" target="_blank" rel="noopener" title="Open the 3D Modeler">3D Modeler</a></h3>${models.map((m) => {
+    const u = skinUrl('tent-custom', m.width, m.length, m.color === '#f6f6f3' ? null : m.color, 0, { tent: m.tent || undefined });
+    return `<div class="catalog-item obj${state.template?.modelId === m.id ? ' on' : ''}" data-model="${esc(m.id)}" role="button" tabindex="0">
+        ${u ? `<img class="skin-thumb" src="${u}" alt="" loading="lazy">` : '<i class="skin-thumb none"></i>'}<span>${esc(m.name)}</span><small>${esc(geo.fmtDims(m.width, m.length, state.units, 'rect'))}</small>
+      </div>`;
+  }).join('')}` : '';
   const html = REFERENCE_CATEGORIES.map((cat) => {
     const items = REFERENCE_OBJECTS.filter((r) => r.category === cat && (!q || `${r.name} ${cat}`.toLowerCase().includes(q)));
     if (!items.length) return '';
-    return `<h3>${esc(cat)}</h3>${items.map((r) => `
-      <button type="button" class="catalog-item${state.template?.id === r.id ? ' on' : ''}" data-tpl="${r.id}">
-        <span>${esc(r.name)}</span><small>${esc(geo.fmtDims(r.width, r.length, state.units, r.shape))}</small>
+    const build = cat === REFERENCE_BY_ID['tent-custom'].category && !READONLY
+      ? '<button type="button" class="btn sm primary build-tent" data-build-tent title="Roof style, heights, bays, sidewalls and fabric, with a 3D preview">Build a tent…</button>'
+        + (state.models.length || READONLY ? '' : '<a class="btn sm" href="/modeler" target="_blank" rel="noopener" title="Model a tent in 3D and save it as a map object">3D Modeler</a>') : '';
+    return `<h3>${esc(cat)}${build}</h3>${items.map((r) => `
+      <button type="button" class="catalog-item${state.template?.id === r.id && !state.template.built ? ' on' : ''}" data-tpl="${r.id}">
+        ${(() => { const u = skinThumb(r); return u ? `<img class="skin-thumb" src="${u}" alt="" loading="lazy">` : '<i class="skin-thumb none"></i>'; })()}<span>${esc(r.name)}</span><small>${esc(geo.fmtDims(r.width, r.length, state.units, r.shape))}</small>
       </button>`).join('')}`;
   }).join('');
-  $('#catalog-list').innerHTML = upload + ((myHtml + html) || '<div class="empty">No matches</div>');
+  $('#catalog-list').innerHTML = upload + ((modelsHtml + myHtml + html) || '<div class="empty">No matches</div>');
 }
 
 /* ================================================================ panel: pen */
@@ -1122,6 +1328,7 @@ function renderInspector() {
       ${tpl ? `<div class="field"><label>Scale</label><div class="row"><input type="range" id="i-scale" min="10" max="400" step="1" value="${scale}" ${ro}><span class="unit" id="i-scale-v">${scale}%</span></div></div>` : ''}
       ${r.shape === 'circle' ? '' : `<div class="field"><label>Rotation</label><div class="row"><input type="range" id="i-rot-r" min="0" max="359.9" step="0.1" value="${r.rotation}" ${ro}><input type="number" class="input" id="i-rot" style="width:72px" step="1" value="${+r.rotation.toFixed(1)}" ${ro}><span class="unit">°</span></div></div>`}
       <div class="field"><label title="Kept clear on every side (stakes, guy lines, egress)">Clearance</label><div class="row"><input type="number" class="input" id="i-clear" step="0.5" min="0" value="${val(r.clearance)}" ${ro}><span class="unit">${u}</span></div></div>
+      ${isTent(r.templateId) && !img ? tentCard(r) : ''}
       ${READONLY ? '' : `<div class="row-btns">
         ${r.shape === 'circle' ? '' : `<button type="button" class="btn sm" data-act="rot90">Rotate 90°</button>${img ? '' : '<button type="button" class="btn sm" data-act="swap">Swap W/L</button>'}`}
         <button type="button" class="btn sm" data-act="reset-size" ${tpl ? '' : 'disabled'}>${img ? 'Original size' : 'Reset size'}</button>
@@ -1153,6 +1360,13 @@ function renderInspector() {
     body += `<div class="field"><label>Lat, lon</label><input class="input" id="i-ll" value="${lat.toFixed(7)}, ${lon.toFixed(7)}" ${ro}></div>`;
   }
 
+  if (MEASURABLE.has(k)) {
+    body += `<div class="field"><label>Measure</label><button type="button" class="btn sm toggle-btn${p.showMeasurements ? ' on' : ''}" data-act="measurements" aria-pressed="${p.showMeasurements ? 'true' : 'false'}" ${ro}
+      title="Keep ${k === 'drawing' ? 'the length' : k === 'reference' && p.reference.shape === 'circle' ? 'the diameter' : 'every side length'} on the map, even when not selected">${p.showMeasurements ? '✓ Showing measurements' : 'Show measurements'}</button></div>`;
+  }
+  if (k !== 'text' && k !== 'drawing') {
+    body += `<div class="field"><label>Label</label><label class="toggle small" title="Hide just this label; the Labels switch hides them all"><input type="checkbox" id="i-showlbl" ${p.showLabel !== false ? 'checked' : ''} ${ro}> Show on map</label></div>`;
+  }
   body += `
     <div class="field" style="align-items:start"><label>Notes</label><textarea id="i-notes" rows="2" maxlength="5000" ${ro}>${esc(p.notes)}</textarea></div>
     <div class="row-btns">
@@ -1243,11 +1457,14 @@ function bindInspector() {
       edit((f, p, r) => {
         const wasDefaultName = !p.name || REFERENCE_BY_ID[r.templateId]?.name === p.name;
         Object.assign(r, { templateId: tpl.id, shape: tpl.shape, width: tpl.width, length: tpl.length });
+        if (!isTent(tpl.id)) delete r.tent;
         if (wasDefaultName) p.name = tpl.name;
       }, { rerender: true });
     } else if (t.id === 'i-lock') {
       edit((f, p, r) => { r.lockAspect = t.checked; });
       updateHint();
+    } else if (t.id === 'i-showlbl') {
+      edit((f, p) => { if (t.checked) delete p.showLabel; else p.showLabel = false; });
     } else if (t.id === 'i-box') {
       edit((f, p) => { p.style.box = t.checked; });
     } else if (t.id === 'i-ll') {
@@ -1267,6 +1484,14 @@ function bindInspector() {
     inspectorUndoArmed = true;
     switch (act) {
       case 'zoom': zoomTo([f]); break;
+      case 'tent-builder': editTent(f); break;
+      case 'measurements': {
+        if (READONLY) break;
+        pushUndo();
+        if (f.properties.showMeasurements) delete f.properties.showMeasurements; else f.properties.showMeasurements = true;
+        renderFeature(f); renderInspector(); markDirty();
+        break;
+      }
       case 'delete': deleteFeature(f.id); break;
       case 'dup': {
         const c = structuredClone(f);
@@ -1321,9 +1546,11 @@ function runFit(mode, f) {
         const v = scratchView('__pack');
         v.destroy();
         const shown = res.centers.slice(0, 5000);
+        const skins = skinned(r) && shown.length <= 120;
         shown.forEach((center, i) => {
           v.overlay(`p${i}`, 'polygon', geo.openRing(geo.footprintRing({ center, shape: r.shape, width: r.width, length: r.length, rotation: res.rotation })),
-            { stroke: f.properties.color, width: 1, fill: f.properties.color, fillOpacity: 0.25 });
+            { stroke: f.properties.color, width: 1, fill: f.properties.color, fillOpacity: skins ? 0 : 0.25 });
+          if (skins) putObjImage(`lm-obj-__pack:p${i}`, skinSpec(r, f.properties.color, center, res.rotation, 0.9));
         });
         show(res.count > 0, `<b>${res.count.toLocaleString()}</b> × ${esc(f.properties.name)} fit in ${esc(area.properties.name)}${r.clearance ? ` with ${esc(fmtL(2 * r.clearance))} between them` : ''} (grid at ${res.rotation}°).
           ${res.count > shown.length ? `<br><span class="muted small">Showing the first ${shown.length}.</span>` : ''}
@@ -1888,11 +2115,13 @@ function bindImagery() {
 function siteBody() {
   return {
     name: state.site.name, description: state.site.description, tags: state.site.tags, metadata: state.site.metadata,
+    address: state.site.addressAuto ? '' : state.site.address, // '' = look it up from the map
     units: state.units, view: currentView(), features: { type: 'FeatureCollection', features: state.features },
   };
 }
 async function save() {
   if (READONLY) return;
+  if (document.activeElement?.classList.contains('site-addr-input')) document.activeElement.blur(); // commit an address being typed
   const btn = $('#btn-save');
   btn.disabled = true;
   try {
@@ -1909,13 +2138,17 @@ async function save() {
 function loadSite(site, { keepView = false } = {}) {
   const sameSite = keepView && site.id && (state.site.id === site.id || state.site.id == null);
   const keepSel = sameSite ? state.selectedId : null;
-  state.site = { id: site.id, name: site.name, description: site.description || '', tags: site.tags || [], metadata: site.metadata || {} };
+  state.site = {
+    id: site.id, name: site.name, address: site.address || '', addressAuto: site.addressAuto !== false,
+    description: site.description || '', tags: site.tags || [], metadata: site.metadata || {},
+  };
   state.features = (site.features?.features || []).map((f, i) => normalize(f, i));
   if (!sameSite) undoStack.length = 0;
   state.selectedId = keepSel && byId(keepSel) ? keepSel : null;
   state.dirty = false;
   $('#dirty').hidden = true;
   $('#site-name').value = state.site.name;
+  renderAddress();
   document.title = `${state.site.name} · LiteMap`;
   if (!EMBED && site.id) {
     const u = new URL(location.href);
@@ -1931,6 +2164,53 @@ function loadSite(site, { keepView = false } = {}) {
   }
   emitChangeSoon();
 }
+/* ---- site address: looked up from the map on save, or typed in */
+function renderAddress() {
+  const btn = $('#site-addr');
+  if (!btn) return;
+  const { address, addressAuto } = state.site;
+  btn.classList.toggle('empty', !address);
+  btn.querySelector('span').textContent = address || (READONLY ? '' : state.site.id ? 'Add address' : 'Address is found when you save');
+  btn.hidden = READONLY && !address;
+  btn.title = address
+    ? `${address}
+${addressAuto ? 'Found from the site location' : 'Typed in'}${READONLY ? '' : ' · click to edit'}`
+    : 'Click to type an address, or save to look it up from the map';
+}
+function editAddress() {
+  if (READONLY) return;
+  const btn = $('#site-addr');
+  const input = document.createElement('input');
+  input.className = 'input site-addr-input';
+  input.maxLength = 300;
+  input.value = state.site.address;
+  input.placeholder = 'Address (empty = find from map)';
+  input.setAttribute('aria-label', 'Site address');
+  btn.hidden = true;
+  btn.after(input);
+  input.focus(); input.select();
+  let done = false;
+  const finish = (commit) => {
+    if (done) return;
+    done = true;
+    const v = input.value.trim();
+    input.remove();
+    btn.hidden = false;
+    if (commit && v !== state.site.address) {
+      // a cleared field goes back to an automatic address, filled in on the next save
+      Object.assign(state.site, { address: v, addressAuto: !v });
+      markDirty();
+      if (!v) toast('The address will be looked up from the map when you save');
+    }
+    renderAddress();
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+}
+
 async function openSite(id) {
   try { loadSite(await api('GET', `/sites/${encodeURIComponent(id)}`)); } catch (e) { toast(`Could not open site: ${e.message}`, true); }
 }
@@ -1951,6 +2231,7 @@ async function showSites() {
       $('#sites-list').innerHTML = items.length ? items.map((s) => `
         <li><button type="button" class="open" data-open="${esc(s.id)}">
           <span class="site-row"><b>${esc(s.name)}</b><span class="saved" title="Last saved ${esc(new Date(s.updatedAt).toLocaleString())}">Saved ${esc(savedDate(s.updatedAt))}</span></span>
+          ${s.address ? `<span class="muted small site-row-addr" title="${esc(s.address)}">📍 ${esc(s.address)}</span>` : ''}
           <span class="muted small">${s.summary.featureCount} item${s.summary.featureCount === 1 ? '' : 's'}${s.summary.totalAreaM2 ? ` · ${esc(fmtA(s.summary.totalAreaM2).split(' · ')[0])}` : ''} · ${esc(timeAgo(s.updatedAt))}${s.id === state.site.id ? ' · open now' : ''}</span></button>
           <button type="button" class="btn sm danger" data-del="${esc(s.id)}">Delete</button></li>`).join('')
         : '<li class="empty" style="display:block">No saved sites yet.</li>';
@@ -1988,7 +2269,7 @@ function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTi
 
 /* ================================================================ import/export */
 function exportGeoJSON() {
-  const fc = { type: 'FeatureCollection', properties: { name: state.site.name, siteId: state.site.id, exportedAt: new Date().toISOString() }, features: state.features };
+  const fc = { type: 'FeatureCollection', properties: { name: state.site.name, address: state.site.address, siteId: state.site.id, exportedAt: new Date().toISOString() }, features: state.features };
   download(`${safeName()}.geojson`, JSON.stringify(fc, null, 2), 'application/geo+json');
 }
 function exportCSV() {
@@ -2004,7 +2285,7 @@ function exportCSV() {
   download(`${safeName()}.csv`, [cols.join(','), ...rows].join('\n'), 'text/csv');
 }
 function summaryText() {
-  const lines = [`${state.site.name}`, `Measured ${new Date().toLocaleDateString()} with LiteMap`, ''];
+  const lines = [`${state.site.name}`, ...(state.site.address ? [state.site.address] : []), `Measured ${new Date().toLocaleDateString()} with LiteMap`, ''];
   for (const f of state.features) {
     const p = f.properties, m = p.metrics;
     let v;
@@ -2142,6 +2423,14 @@ function bindChrome() {
   $('#map-type').onchange = (e) => setMapType(e.target.value);
   $('#show-labels').checked = state.showLabels;
   $('#show-labels').onchange = (e) => { state.showLabels = e.target.checked; ls.set('litemap:labels', state.showLabels); syncAllViews(); };
+  $('#show-skins').checked = state.showSkins;
+  $('#show-skins').onchange = (e) => { state.showSkins = e.target.checked; ls.set('litemap:skins', state.showSkins); syncAllViews(); renderGhost(); };
+  $('#show-3d').checked = state.show3d;
+  $('#show-3d').onchange = (e) => set3d(e.target.checked);
+  $('#show-ballast').checked = state.showBallast;
+  $('#show-ballast').onchange = (e) => { state.showBallast = e.target.checked; ls.set('litemap:ballast', state.showBallast); syncAllViews(); renderGhost(); };
+  $('#site-addr').addEventListener('click', editAddress);
+  renderAddress();
   $('#site-name').addEventListener('input', (e) => { state.site.name = e.target.value || 'Untitled site'; document.title = `${state.site.name} · LiteMap`; markDirty(); });
   if (READONLY) $('#site-name').readOnly = true;
   $('#panel-grip').onclick = () => $('#panel').classList.toggle('open');
@@ -2157,16 +2446,18 @@ function bindChrome() {
   $('#catalog-filter').oninput = renderCatalog;
   $('#catalog-list').onclick = (e) => {
     if (e.target.closest('[data-upload]')) return uploadObject();
+    if (e.target.closest('[data-build-tent]')) return buildTent();
     const del = e.target.closest('[data-obj-del]');
     if (del) { e.stopPropagation(); return deleteObject(del.dataset.objDel); }
+    const mo = e.target.closest('[data-model]');
     const ob = e.target.closest('[data-obj]');
     const b = e.target.closest('[data-tpl]');
-    if (!ob && !b) return;
-    state.template = ob ? objTemplate(objectById(ob.dataset.obj)) : REFERENCE_BY_ID[b.dataset.tpl];
+    if (!mo && !ob && !b) return;
+    state.template = mo ? modelTemplate(modelById(mo.dataset.model)) : ob ? objTemplate(objectById(ob.dataset.obj)) : REFERENCE_BY_ID[b.dataset.tpl];
     renderCatalog();
     updateHint();
   };
-  $('#catalog-list').onkeydown = (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-obj]')) { e.preventDefault(); e.target.click(); } };
+  $('#catalog-list').onkeydown = (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-obj],[data-model]')) { e.preventDefault(); e.target.click(); } };
 
   $('#feature-list').addEventListener('click', (e) => { const li = e.target.closest('li[data-id]'); if (li) select(li.dataset.id); });
   $('#feature-list').addEventListener('dblclick', (e) => { const li = e.target.closest('li[data-id]'); if (li) zoomTo([byId(li.dataset.id)]); });
@@ -2265,6 +2556,9 @@ async function initMap() {
   scaleControl = new mapboxgl.ScaleControl({ maxWidth: 140, unit: state.units });
   map.addControl(scaleControl, 'bottom-left');
   map.on('style.load', ensureLayers);
+  if (state.show3d) map.once('load', () => set3d(true));
+  map.on('zoom', labelScale);
+  labelScale();
   map.on('moveend', debounce(() => { if (!EMBED) ls.set('litemap:view', currentView()); }, 400));
   map.on('moveend', () => {
     if (imagery.active) { refreshCenterDate(); renderImageryBadge(); }
@@ -2294,8 +2588,18 @@ async function initMap() {
   boot();
 }
 
+/** The server's local catalog (data/catalog.json, e.g. a company's own tents) joins the built-in one before any site loads. */
+async function loadCatalog() {
+  try {
+    const res = await fetch('/api/v1/reference-objects');
+    if (!res.ok) return;
+    if (addReferenceObjects((await res.json()).items || []) && state.tool === 'reference') renderCatalog();
+  } catch { /* offline: built-in catalog only */ }
+}
+
 async function boot() {
-  if (!EMBED) loadObjects({ quiet: true });
+  await loadCatalog();
+  if (!EMBED) { loadObjects({ quiet: true }); loadModels().then(openModelFromUrl); }
   const siteId = params.get('site');
   if (siteId) {
     await openSite(siteId);
@@ -2305,6 +2609,7 @@ async function boot() {
       state.site = { ...blankSite(), ...draft.site };
       state.features = draft.features.map((f, i) => normalize(f, i));
       $('#site-name').value = state.site.name;
+      renderAddress();
       changed({ all: true });
       zoomTo(state.features);
       toast('Restored your unsaved work');

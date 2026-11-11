@@ -4,6 +4,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { Store, newId } from './store.js';
 import { ObjectLibrary, MAX_IMAGE_BYTES } from './objects.js';
+import { ModelLibrary } from './models.js';
+import { buildGlb, fileStem } from '../public/js/modelfile.js';
 import { buildOpenApi, API_VERSION } from './openapi.js';
 import * as mapbox from './mapbox.js';
 import { imageryDatesAt, skyfiSearch, gibsDatesAt } from './imagery.js';
@@ -11,8 +13,9 @@ import { IMAGERY_SOURCES, IMAGERY_BY_ID } from '../public/js/imagery.js';
 import {
   HttpError, normalizeFeature, normalizeFeatureList, normalizeSiteFields, presentSite, validateGeometry, lonLat,
 } from './features.js';
-import { measureGeometry, fitFootprint, largestFit, packFootprints, footprintRing } from '../public/js/geo.js';
+import { measureGeometry, fitFootprint, largestFit, packFootprints, footprintRing, bboxCenter, distance } from '../public/js/geo.js';
 import { REFERENCE_OBJECTS, REFERENCE_BY_ID } from '../public/js/references.js';
+import { loadLocalCatalog } from './catalog.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -53,9 +56,26 @@ async function readRaw(req, max) {
 
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest();
 
-export async function createApp(cfg) {
+/** Where a site is: the middle of its features, else its saved map view. */
+export function siteLocation(site) {
+  const pts = [];
+  for (const f of site.features || []) {
+    const g = f.geometry;
+    if (g?.type === 'Point') pts.push(g.coordinates);
+    else if (g?.type === 'LineString') pts.push(...g.coordinates);
+    else if (g?.type === 'Polygon') pts.push(...g.coordinates[0]);
+  }
+  if (pts.length) return bboxCenter(pts);
+  return site.view?.center || null;
+}
+const ADDRESS_REFRESH_M = 150; // re-look-up an automatic address once the site moves this far
+
+export async function createApp(cfg, deps = {}) {
+  const reverse = deps.reverseGeocode || ((pt) => mapbox.reverseGeocode(cfg.mapbox, pt));
   const store = await new Store(path.join(cfg.dataDir, 'sites.json')).load();
+  await loadLocalCatalog(cfg.dataDir);
   const objects = await new ObjectLibrary(cfg.dataDir).load();
+  const models = await new ModelLibrary(cfg.dataDir).load();
   const keyHashes = cfg.apiKeys.map(sha);
 
   const baseUrl = (req) => {
@@ -89,6 +109,33 @@ export async function createApp(cfg) {
     return i;
   };
   const touch = (site) => { site.updatedAt = new Date().toISOString(); return site; };
+
+  /**
+   * Fill in an automatic address from the site's location. Best-effort: a lookup
+   * failure never fails the request, and a typed-in (manual) address is never replaced.
+   */
+  const canAutoAddress = () => cfg.autoAddress && Boolean(deps.reverseGeocode || cfg.mapbox.serverToken);
+  async function ensureAddress(site) {
+    if (!canAutoAddress() || site.addressAuto === false) return false;
+    const at = siteLocation(site);
+    if (!at) return false;
+    if (site.address && site.addressPoint && distance(at, site.addressPoint) < ADDRESS_REFRESH_M) return false;
+    try {
+      const address = await reverse(at);
+      if (!address) return false;
+      Object.assign(site, { address, addressAuto: true, addressPoint: [+at[0].toFixed(6), +at[1].toFixed(6)] });
+      return true;
+    } catch { return false; }
+  }
+  // Backfill sites saved before addresses existed (in the background, one at a time).
+  const addressBackfill = (async () => {
+    if (!canAutoAddress()) return;
+    for (const s of store.list()) {
+      if (s.address || s.addressAuto === false) continue;
+      const live = store.get(s.id);
+      if (live && await ensureAddress(live)) await store.put(live);
+    }
+  })().catch(() => {});
 
   function resolveArea(body) {
     if (body.polygon) {
@@ -277,13 +324,43 @@ export async function createApp(cfg) {
     res.end(req.method === 'HEAD' ? undefined : data);
   }, { public: true });
 
+  /* ---- 3D models (parametric tents from the 3D Modeler; placed as tent references, exported as .glb) */
+  const presentModel = (req, m) => ({ ...m, glbUrl: `${baseUrl(req)}/api/v1/models/${m.id}/glb` });
+
+  route('GET', '/api/v1/models', (req) => ({ items: models.list().map((m) => presentModel(req, m)) }));
+
+  route('POST', '/api/v1/models', async (req, res) => {
+    const m = await models.create(await readJson(req));
+    res.statusCode = 201;
+    return presentModel(req, m);
+  });
+
+  route('GET', '/api/v1/models/:mid', (req, _res, { params }) => presentModel(req, models.get(params.mid)));
+
+  route('PATCH', '/api/v1/models/:mid', async (req, _res, { params }) => presentModel(req, await models.update(params.mid, await readJson(req))));
+
+  route('DELETE', '/api/v1/models/:mid', async (_req, res, { params }) => {
+    await models.remove(params.mid);
+    res.writeHead(204).end();
+  });
+
+  route('GET', '/api/v1/models/:mid/glb', (req, res, { params }) => {
+    const m = models.get(params.mid);
+    const data = Buffer.from(buildGlb(m));
+    res.writeHead(200, {
+      'Content-Type': 'model/gltf-binary', 'Content-Length': data.length,
+      'Content-Disposition': `attachment; filename="${fileStem(m.name)}.glb"`, 'X-Content-Type-Options': 'nosniff',
+    });
+    res.end(req.method === 'HEAD' ? undefined : data);
+  });
+
   route('GET', '/api/v1/sites', (req, _res, { query }) => {
     const q = (query.get('q') || '').toLowerCase();
     const tag = query.get('tag');
     const limit = Math.min(500, Math.max(1, Number(query.get('limit')) || 50));
     const offset = Math.max(0, Number(query.get('offset')) || 0);
     let items = store.list();
-    if (q) items = items.filter((s) => `${s.name}\n${s.description}\n${s.tags.join(' ')}`.toLowerCase().includes(q));
+    if (q) items = items.filter((s) => `${s.name}\n${s.address || ''}\n${s.description}\n${s.tags.join(' ')}`.toLowerCase().includes(q));
     if (tag) items = items.filter((s) => s.tags.includes(tag));
     items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     return { total: items.length, items: items.slice(offset, offset + limit).map((s) => withLinks(req, presentSite(s, { withFeatures: false }))) };
@@ -292,15 +369,16 @@ export async function createApp(cfg) {
   route('POST', '/api/v1/sites', async (req, res) => {
     const body = await readJson(req);
     const fields = normalizeSiteFields(body);
-    if (body.address != null && !fields.view) {
-      if (typeof body.address !== 'string' || !body.address.trim()) throw new HttpError(400, 'invalid_request', 'address must be a non-empty string');
-      const [hit] = await mapbox.geocode(cfg.mapbox, body.address, { limit: 1 });
-      if (!hit) throw new HttpError(400, 'address_not_found', `Could not geocode: ${body.address}`);
+    if (fields.address && !fields.view) {
+      const [hit] = await mapbox.geocode(cfg.mapbox, fields.address, { limit: 1 });
+      if (!hit) throw new HttpError(400, 'address_not_found', `Could not geocode: ${fields.address}`);
       fields.view = { center: hit.coordinate, zoom: 18 };
+      fields.address = hit.formattedAddress || fields.address;
       if (!body.description) fields.description = hit.formattedAddress;
     }
     const now = new Date().toISOString();
     const site = { id: newId(), ...fields, createdAt: now, updatedAt: now };
+    await ensureAddress(site);
     await store.put(site);
     res.statusCode = 201;
     return withLinks(req, presentSite(site));
@@ -311,8 +389,10 @@ export async function createApp(cfg) {
   route('PUT', '/api/v1/sites/:id', async (req, _res, { params }) => {
     const existing = getSite(params.id);
     const body = await readJson(req);
-    const fields = normalizeSiteFields(body, { name: existing.name });
+    const { name, address, addressAuto, addressPoint } = existing; // the address survives a PUT that leaves it out
+    const fields = normalizeSiteFields(body, { name, address, addressAuto, addressPoint });
     const site = touch({ ...fields, id: existing.id, createdAt: existing.createdAt });
+    await ensureAddress(site);
     await store.put(site);
     return withLinks(req, presentSite(site));
   });
@@ -321,6 +401,7 @@ export async function createApp(cfg) {
     const existing = getSite(params.id);
     const body = await readJson(req);
     const site = touch(normalizeSiteFields(body, existing));
+    await ensureAddress(site);
     await store.put(site);
     return withLinks(req, presentSite(site));
   });
@@ -370,7 +451,7 @@ export async function createApp(cfg) {
     const site = getSite(params.id);
     const fc = {
       type: 'FeatureCollection',
-      properties: { siteId: site.id, name: site.name, description: site.description, exportedAt: new Date().toISOString() },
+      properties: { siteId: site.id, name: site.name, address: site.address || '', description: site.description, exportedAt: new Date().toISOString() },
       features: site.features,
     };
     const safe = site.name.replace(/[^\w.-]+/g, '_').slice(0, 80) || 'site';
@@ -402,6 +483,7 @@ export async function createApp(cfg) {
     if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'method_not_allowed', 'Method not allowed');
     if (pathname === '/' ) pathname = '/index.html';
     if (pathname === '/docs' || pathname === '/docs/') pathname = '/docs.html';
+    if (pathname === '/modeler' || pathname === '/modeler/') pathname = '/modeler.html';
     const file = path.normalize(path.join(cfg.publicDir, decodeURIComponent(pathname)));
     if (!file.startsWith(cfg.publicDir + path.sep)) throw new HttpError(404, 'not_found', 'Not found');
     let data;
@@ -462,5 +544,5 @@ export async function createApp(cfg) {
     });
   });
 
-  return { server, store, objects };
+  return { server, store, objects, models, addressBackfill };
 }

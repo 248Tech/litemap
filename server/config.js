@@ -21,6 +21,8 @@ export function loadConfig(env = process.env) {
       // set separately if the public token is URL-restricted.
       serverToken: env.MAPBOX_SERVER_TOKEN || token,
     },
+    // Fill each site's address from its location (Mapbox reverse geocoding) when none is typed in.
+    autoAddress: !['0', 'false', 'off'].includes(String(env.LITEMAP_AUTO_ADDRESS ?? '').toLowerCase()),
     skyfi: {
       apiKey: env.SKYFI_API_KEY || null,
       baseUrl: (env.SKYFI_API_URL || 'https://app.skyfi.com/platform-api').replace(/\/$/, ''),

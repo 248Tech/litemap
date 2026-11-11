@@ -5,20 +5,43 @@
  */
 const ft = (v) => Math.round(v * 0.3048 * 1000) / 1000;
 
-const T = 'Tents & structures';
+const TF = 'Frame & canopy tents';
+const TC = 'Clearspan structures';
+const TM = 'Clearspan structures (metric)';
+const T = 'Stages & floors';
 const V = 'Vehicles & equipment';
 const S = 'Site furniture';
 const P = 'Sports & venues';
 const C = 'Custom';
 
-const tent = (w, l, extra = {}) => ({
-  id: `tent-${w}x${l}`, category: T, name: `Tent ${w}×${l} ft`, shape: 'rect', width: ft(w), length: ft(l), color: '#ffffff', ...extra,
+/* Tent ids are stable (`tent-<w>x<l>` in feet, `tent-<w>x<l>m` in metres): saved sites refer to them. */
+const tent = (w, l, category = w >= 50 ? TC : TF) => ({
+  id: `tent-${w}x${l}`, category, name: `${category === TC ? 'Clearspan' : 'Tent'} ${w}×${l} ft`, shape: 'rect', width: ft(w), length: ft(l), color: '#ffffff',
 });
+const tentM = (w, l) => ({
+  id: `tent-${w}x${l}m`, category: TM, name: `Clearspan ${w}×${l} m`, shape: 'rect', width: w, length: l, color: '#ffffff',
+});
+const sizes = (w, ls) => ls.map((l) => [w, l]);
+
+const FRAME_TENTS = [
+  ...sizes(10, [10, 15, 20, 30]), ...sizes(15, [15, 20, 30]), ...sizes(20, [20, 30, 40, 50, 60, 80]),
+  ...sizes(30, [30, 40, 45, 50, 60, 75, 90, 105, 120]), ...sizes(40, [40, 60, 80, 100, 120, 140, 160]),
+];
+const CLEARSPANS = [
+  ...sizes(50, [50, 75, 100, 125, 150]), ...sizes(60, [60, 90, 120, 150, 180, 210]),
+  ...sizes(80, [80, 100, 120, 160, 200, 240]), ...sizes(100, [100, 150, 200, 250, 300]),
+  ...sizes(120, [120, 150, 200, 250, 300]),
+];
+const METRIC = [
+  ...sizes(10, [10, 15, 20, 25, 30, 40]), ...sizes(15, [15, 20, 25, 30, 40, 50]), ...sizes(20, [20, 25, 30, 40, 50, 60]),
+  ...sizes(25, [25, 30, 40, 50, 60]), ...sizes(30, [30, 40, 50, 60, 80]), ...sizes(40, [40, 50, 60, 80, 100]),
+];
 
 export const REFERENCE_OBJECTS = [
-  tent(10, 10), tent(10, 20), tent(20, 20), tent(20, 30), tent(20, 40), tent(30, 30), tent(30, 45),
-  tent(30, 60), tent(40, 40), tent(40, 60), tent(40, 80), tent(40, 100), tent(40, 120), tent(50, 100),
-  tent(60, 90), tent(60, 120), tent(60, 150), tent(80, 120), tent(80, 160), tent(100, 150), tent(100, 200),
+  { id: 'tent-custom', category: TF, name: 'Custom tent', shape: 'rect', width: ft(30), length: ft(45), color: '#ffffff' },
+  ...FRAME_TENTS.map(([w, l]) => tent(w, l)),
+  ...CLEARSPANS.map(([w, l]) => tent(w, l)),
+  ...METRIC.map(([w, l]) => tentM(w, l)),
   { id: 'stage-16x24', category: T, name: 'Stage 16×24 ft', shape: 'rect', width: ft(16), length: ft(24), color: '#bf5af2' },
   { id: 'dance-floor-20x20', category: T, name: 'Dance floor 20×20 ft', shape: 'rect', width: ft(20), length: ft(20), color: '#bf5af2' },
 
@@ -52,3 +75,18 @@ export const REFERENCE_OBJECTS = [
 
 export const REFERENCE_CATEGORIES = [...new Set(REFERENCE_OBJECTS.map((r) => r.category))];
 export const REFERENCE_BY_ID = Object.fromEntries(REFERENCE_OBJECTS.map((r) => [r.id, r]));
+
+/**
+ * Add a local catalog (data/catalog.json, loaded by the server and fetched by the
+ * UI) in front of the built-in one. Items keep their own categories, listed
+ * first in the order they appear; ids already in the catalog are skipped.
+ */
+export function addReferenceObjects(items) {
+  const fresh = items.filter((r) => r && r.id && !REFERENCE_BY_ID[r.id]);
+  if (!fresh.length) return 0;
+  REFERENCE_OBJECTS.unshift(...fresh);
+  for (const r of fresh) REFERENCE_BY_ID[r.id] = r;
+  const cats = [...new Set(fresh.map((r) => r.category))].filter((c) => !REFERENCE_CATEGORIES.includes(c));
+  REFERENCE_CATEGORIES.unshift(...cats);
+  return fresh.length;
+}

@@ -28,7 +28,7 @@ function png(w, h) {
 let server, base, dir;
 before(async () => {
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'litemap-obj-'));
-  ({ server } = await createApp(loadConfig({ DATA_DIR: dir, MAPBOX_TOKEN: 'pk.x', LITEMAP_API_KEY: 'k' })));
+  ({ server } = await createApp(loadConfig({ DATA_DIR: dir, MAPBOX_TOKEN: 'pk.x', LITEMAP_API_KEY: 'k', LITEMAP_AUTO_ADDRESS: '0' })));
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}`;
 });
