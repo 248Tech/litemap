@@ -523,7 +523,7 @@ export function tentLayer(id = 'lm-tents3d') {
           return [ox + e * cs + n * sn, oy - e * sn + n * cs, z];
         };
         const own = t.model ? vehicleMesh(t.model, w, l, { color: t.paint }) : null;
-        for (const f of own || tentMesh(w, l, t.tent, { color: t.color, ballast: t.ballast }).faces) faces.push({ ...f, pts: f.pts.map(toWorld) });
+        for (const f of own || tentMesh(w, l, t.tent || undefined, { color: t.color, ballast: t.ballast }).faces) faces.push({ ...f, pts: f.pts.map(toWorld) });
       }
     }
     mesh.set(faces);
@@ -531,7 +531,7 @@ export function tentLayer(id = 'lm-tents3d') {
   }
 
   return {
-    id, type: 'custom', renderingMode: '3d',
+    id, type: 'custom', renderingMode: '3d', slot: 'top', // slot: above Mapbox Standard's 3D city
     setTents(tents) { build(tents); },
     onAdd(m, context) { map = m; gl = context; mesh.init(gl); build(pending); },
     onRemove() { map = null; gl = null; mesh.prog = null; mesh.vao = null; },

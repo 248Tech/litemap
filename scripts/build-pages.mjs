@@ -53,7 +53,7 @@ if (/from '\.\.\/|from 'node:|store\.js/.test(features)) throw new Error('server
 await fs.writeFile(path.join(APP, 'js', 'server-features.js'), features);
 
 // demo config and entry points: the in-browser API must be installed before the app starts
-const styles = { hybrid: 'satellite-streets-v12', satellite: 'satellite-v9', streets: 'streets-v12', light: 'light-v11' };
+const styles = { hybrid: 'satellite-streets-v12', satellite: 'satellite-v9', streets: 'streets-v12', light: 'light-v11', city: 'standard' };
 await fs.writeFile(path.join(APP, 'js', 'demo-config.js'), `globalThis.LITEMAP_DEMO = ${JSON.stringify({ mapboxToken: token, styles })};\n`);
 for (const [entry, main] of [['demo-main.js', 'app.js'], ['demo-modeler.js', 'modeler.js']]) {
   await fs.writeFile(path.join(APP, 'js', entry), `import './demo-config.js';\nawait import('./demo-api.js');\nawait import('./${main}');\n`);

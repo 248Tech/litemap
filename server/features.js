@@ -191,7 +191,7 @@ export function normalizeFeatureList(input) {
   });
 }
 
-const MAP_TYPES = ['hybrid', 'satellite', 'streets', 'light'];
+const MAP_TYPES = ['hybrid', 'satellite', 'streets', 'light', 'city'];
 
 export function normalizeSiteFields(input, base = {}) {
   if (!isObj(input)) bad('body must be a JSON object');

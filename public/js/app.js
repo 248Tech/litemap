@@ -33,7 +33,7 @@ const PALETTE = ['#ffd60a', '#30d158', '#64d2ff', '#0a84ff', '#ff9f0a', '#ff453a
 const KIND_LABEL = { distance: 'Distance', area: 'Area', marker: 'Pin', reference: 'Object', text: 'Text', drawing: 'Drawing' };
 const clamp = (v, lo, hi, d) => (Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Number(v))) : d);
 const textName = (t) => (String(t || '').split('\n')[0].trim().slice(0, 60) || 'Text');
-const MAP_TYPES = { hybrid: 'satellite-streets-v12', satellite: 'satellite-v9', streets: 'streets-v12', light: 'light-v11' };
+const MAP_TYPES = { hybrid: 'satellite-streets-v12', satellite: 'satellite-v9', streets: 'streets-v12', light: 'light-v11', city: 'standard' };
 const LEGACY_TYPES = { standard: 'streets', mutedStandard: 'light' };
 
 const state = {
@@ -45,7 +45,6 @@ const state = {
   showLabels: ls.get('litemap:labels', true),
   showSkins: ls.get('litemap:skins', true),
   showBallast: ls.get('litemap:ballast', true),
-  showBuildings: ls.get('litemap:buildings', true),
   show3d: ls.get('litemap:3d', false),
   site: blankSite(),
   dirty: false,
@@ -281,32 +280,10 @@ function scheduleShapes() {
 }
 /* Tents stand up in 3D (tent3d.js custom layer) when the 3D switch is on. */
 const tents3d = tentLayer();
-/**
- * Real-height buildings from the style's own vector data, under our overlays, while 3D is on.
- * Plain Satellite has no building data (no `composite` source), so it is skipped there.
- */
-function syncBuildings() {
-  const id = 'lm-buildings';
-  try {
-    if (!(state.show3d && state.showBuildings)) { if (map.getLayer(id)) map.removeLayer(id); return; }
-    if (map.getLayer(id) || !map.getSource('composite')) return;
-    const imagery = state.mapType === 'hybrid' || state.mapType === 'satellite'; // keep the photo readable under them
-    map.addLayer({
-      id, type: 'fill-extrusion', source: 'composite', 'source-layer': 'building', minzoom: 14,
-      filter: ['==', ['get', 'extrude'], 'true'],
-      paint: {
-        'fill-extrusion-color': state.mapType === 'light' ? '#e4e3df' : '#d8d5cc',
-        'fill-extrusion-height': ['get', 'height'], 'fill-extrusion-base': ['get', 'min_height'],
-        'fill-extrusion-opacity': imagery ? 0.72 : 0.92, 'fill-extrusion-vertical-gradient': true,
-      },
-    }, 'lm-fill');
-  } catch { map.once('idle', syncBuildings); }
-}
 function sync3d() {
   // our layers exist once the style is ready (ensureLayers re-runs this then). Not isStyleLoaded():
   // that stays false while imagery tiles download, which skipped the 3D layer on slow connections.
   if (!map?.getLayer('lm-fill')) return;
-  syncBuildings();
   const has = Boolean(map.getLayer(tents3d.id));
   try {
     if (!state.show3d) { if (has) map.removeLayer(tents3d.id); return; }
@@ -2450,15 +2427,16 @@ function bindChrome() {
   $('#btn-save').onclick = save;
   $('#btn-sites').onclick = showSites;
   $('#units').onclick = (e) => { const u = e.target.closest('[data-units]')?.dataset.units; if (u) setUnits(u); };
-  $('#map-type').onchange = (e) => setMapType(e.target.value);
+  $('#map-type').onchange = (e) => {
+    setMapType(e.target.value);
+    if (e.target.value === 'city' && !state.show3d) set3d(true); // the city view is for tilting
+  };
   $('#show-labels').checked = state.showLabels;
   $('#show-labels').onchange = (e) => { state.showLabels = e.target.checked; ls.set('litemap:labels', state.showLabels); syncAllViews(); };
   $('#show-skins').checked = state.showSkins;
   $('#show-skins').onchange = (e) => { state.showSkins = e.target.checked; ls.set('litemap:skins', state.showSkins); syncAllViews(); renderGhost(); };
   $('#show-3d').checked = state.show3d;
   $('#show-3d').onchange = (e) => set3d(e.target.checked);
-  $('#show-buildings').checked = state.showBuildings;
-  $('#show-buildings').onchange = (e) => { state.showBuildings = e.target.checked; ls.set('litemap:buildings', state.showBuildings); sync3d(); };
   $('#show-ballast').checked = state.showBallast;
   $('#show-ballast').onchange = (e) => { state.showBallast = e.target.checked; ls.set('litemap:ballast', state.showBallast); syncAllViews(); renderGhost(); };
   $('#site-addr').addEventListener('click', editAddress);

@@ -294,7 +294,7 @@ export function buildOpenApi(serverUrl) {
           parameters: [
             { name: 'size', in: 'query', schema: { type: 'string', default: '600x400', pattern: '^\\d{2,4}x\\d{2,4}$' }, description: 'Max 1280x1280.' },
             { name: 'retina', in: 'query', schema: { type: 'boolean', default: true } },
-            { name: 'mapType', in: 'query', schema: { type: 'string', enum: ['satellite', 'hybrid', 'streets', 'light'], default: 'satellite' } },
+            { name: 'mapType', in: 'query', schema: { type: 'string', enum: ['satellite', 'hybrid', 'streets', 'light', 'city'], default: 'satellite' } },
             { name: 'format', in: 'query', schema: { type: 'string', enum: ['json', 'redirect'], default: 'json' } },
           ],
           responses: {

@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Added
 - **Avant 630 loader** in Vehicles & equipment, with a top-down skin drawn to the manufacturer's dimensions (100.3 in long, 50.8 in wide on wide tyres; axle positions, boom and canopy to scale).
 - The Avant 630 also stands up in **3D** on the map (tyres, articulated body, boom, plate and canopy to scale), with the flat sprite reduced to a ground shadow.
-- **Buildings** switch (next to 3D): with 3D on, Mapbox building footprints rise to their real height under your objects, on the Streets, Light and Hybrid maps.
+- **3D city** map type (Mapbox Standard): detailed 3D buildings, landmarks and trees with proper lighting. Picking it turns 3D on and tilts the map, and tents and equipment stand in the scene.
 
 ## [1.3.1] - 2026-11-11
 
