@@ -6,6 +6,7 @@
  * Canvas x = the object's width (across), y = its length; the top edge is the
  * object's front (the rotation bearing), matching the uploaded-object images.
  */
+import { has3d } from './vehicle3d.js';
 import { FT, resolveTent, roofFaces, wallBays, legs, outward, lightness, SIDES } from './tentspec.js';
 
 const MAX_PX = 1024;
@@ -628,6 +629,13 @@ function render(templateId, width, length, color, maxPx, maxPpm, pad = 0, opts =
   const g = c.getContext('2d', { willReadFrequently: true });
   g.scale(c.width / W, c.height / L);
   g.translate(pad, pad);
+  if (opts.floor && draw !== tent && has3d(templateId)) {
+    // 3D view: the model is drawn by the 3D layer, so the plan keeps only a soft shadow
+    g.fillStyle = 'rgba(0,0,0,.26)';
+    if (templateId === 'round-table-60' || templateId === 'person') { g.beginPath(); g.ellipse(width / 2, length / 2, width / 2, length / 2, 0, 0, Math.PI * 2); g.fill(); }
+    else { rr(g, width * 0.02, length * 0.02, width * 0.96, length * 0.96, Math.min(width, length) * 0.1); g.fill(); }
+    return c;
+  }
   if (pad > 0 && draw === tent) tentBallast(g, width, length, opts.tent);
   draw(g, width, length, { color, tent: opts.tent, floor: opts.floor });
   return c;
