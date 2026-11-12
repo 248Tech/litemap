@@ -53,6 +53,8 @@ export const REFERENCE_OBJECTS = [
   { id: 'container-20', category: V, name: 'Shipping container 20 ft', shape: 'rect', width: ft(8), length: ft(20), color: '#ff9f0a' },
   { id: 'container-40', category: V, name: 'Shipping container 40 ft', shape: 'rect', width: ft(8), length: ft(40), color: '#ff9f0a' },
   { id: 'forklift', category: V, name: 'Forklift (5k lb)', shape: 'rect', width: 1.2, length: 3.4, color: '#ff9f0a' },
+  // Avant 630 articulated loader (manufacturer drawing): 100.3 in long, 50.8 in wide on the wide tyres (40.6 in standard)
+  { id: 'avant-630', category: V, name: 'Avant 630 loader', shape: 'rect', width: 1.29, length: 2.548, color: '#ff9f0a' },
   { id: 'boom-lift', category: V, name: 'Boom lift (60 ft)', shape: 'rect', width: ft(8), length: ft(30), color: '#ff9f0a' },
   { id: 'dumpster-30yd', category: V, name: 'Roll-off dumpster 30 yd', shape: 'rect', width: ft(8), length: ft(22), color: '#ff9f0a' },
   { id: 'generator-towable', category: V, name: 'Towable generator', shape: 'rect', width: ft(6.5), length: ft(14), color: '#ff9f0a' },

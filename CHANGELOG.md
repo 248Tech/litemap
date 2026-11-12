@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+- **Avant 630 loader** in Vehicles & equipment, with a top-down skin drawn to the manufacturer's dimensions (100.3 in long, 50.8 in wide on wide tyres; axle positions, boom and canopy to scale).
+
 ## [1.3.1] - 2026-11-11
 
 ### Fixed

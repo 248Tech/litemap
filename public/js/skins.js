@@ -348,6 +348,58 @@ function forklift(g, w, l, { color }) {
   g.fillStyle = '#2b2d31'; rr(g, w * 0.12, l - 0.55, w * 0.76, 0.5, 0.2); g.fill(); // counterweight
 }
 
+/*
+ * Avant 630 articulated loader. Positions follow the manufacturer drawing
+ * (100.3 in long): front axle 16.9 in behind the attachment plate, 47.2 in
+ * wheelbase, 36.2 in rear overhang. Front of the machine (boom, plate) is up.
+ */
+function avant630(g, w, l, { color }) {
+  const paint = color || '#3fa21f';
+  const cx = w / 2, k = l / 2.548; // scale if the user resizes the object
+  const fy = 0.429 * k, ry = 1.628 * k;
+  tires(g, w, l, [fy, ry], Math.min(0.32, w * 0.25), 0.64 * k);
+  g.fillStyle = '#3b3d42'; // tyre lugs
+  for (const y of [fy, ry]) for (let d = -0.26 * k; d <= 0.26 * k; d += 0.065 * k) {
+    g.fillRect(0.02, y + d, Math.min(0.32, w * 0.25) - 0.04, 0.02); g.fillRect(w - Math.min(0.32, w * 0.25) + 0.02, y + d, Math.min(0.32, w * 0.25) - 0.04, 0.02);
+  }
+  const bx = w * 0.24, bw = w * 0.52;
+  // rear frame + engine hood
+  rr(g, bx - 0.02, 1.0 * k, bw + 0.04, l - 1.0 * k, 0.16);
+  g.fillStyle = hGrad(g, bx, bx + bw, [[0, shade(paint, 0.72)], [0.5, shade(paint, 1.12)], [1, shade(paint, 0.72)]]); g.fill();
+  g.strokeStyle = shade(paint, 0.55); g.lineWidth = 0.015; g.stroke();
+  g.strokeStyle = shade(paint, 0.6); g.lineWidth = 0.012; // hood vents
+  for (let y = 1.95 * k; y < 2.3 * k; y += 0.07 * k) line(g, cx - bw * 0.3, y, cx + bw * 0.3, y);
+  g.fillStyle = '#2b2d31'; rr(g, bx, l - 0.12 * k, bw, 0.12 * k, 0.05); g.fill(); // rear bumper / counterweight
+  // front frame
+  rr(g, bx, 0.14 * k, bw, 0.92 * k, 0.1);
+  g.fillStyle = hGrad(g, bx, bx + bw, [[0, shade(paint, 0.74)], [0.5, shade(paint, 1.1)], [1, shade(paint, 0.74)]]); g.fill();
+  g.strokeStyle = shade(paint, 0.55); g.lineWidth = 0.015; g.stroke();
+  // articulation joint
+  g.fillStyle = '#2b2d31'; circle(g, cx, 1.02 * k, 0.07); g.fill();
+  // telescopic boom: sections narrow toward the attachment plate
+  g.fillStyle = hGrad(g, cx - 0.1, cx + 0.1, [[0, '#4f7f2b'], [0.5, '#7ac044'], [1, '#4f7f2b']]);
+  g.fillRect(cx - 0.1, 0.62 * k, 0.2, 0.38 * k); // outer section
+  g.fillStyle = hGrad(g, cx - 0.075, cx + 0.075, [[0, '#5a9230'], [0.5, '#86cc4f'], [1, '#5a9230']]);
+  g.fillRect(cx - 0.075, 0.34 * k, 0.15, 0.3 * k); // inner section
+  g.fillStyle = '#3a3c41'; g.fillRect(cx - 0.06, 0.12 * k, 0.12, 0.24 * k); // tip
+  g.strokeStyle = '#1d1e21'; g.lineWidth = 0.012;
+  for (const y of [0.34 * k, 0.62 * k]) line(g, cx - 0.1, y, cx + 0.1, y);
+  g.lineWidth = 0.02; // hydraulic hoses along the boom
+  line(g, cx - 0.09, 0.2 * k, cx - 0.09, 0.95 * k); line(g, cx + 0.09, 0.2 * k, cx + 0.09, 0.95 * k);
+  // attachment plate (quick-attach)
+  g.fillStyle = '#3a3c41'; rr(g, cx - 0.27, 0.0, 0.54, 0.13 * k, 0.03); g.fill();
+  g.fillStyle = '#d9a21b'; g.fillRect(cx - 0.2, 0.03, 0.06, 0.07 * k); g.fillRect(cx + 0.14, 0.03, 0.06, 0.07 * k);
+  // operator canopy over the seat
+  const cw = w * 0.6, cl = 0.78 * k, cy = 0.95 * k;
+  rr(g, cx - cw / 2, cy, cw, cl, 0.1);
+  g.fillStyle = hGrad(g, cx - cw / 2, cx + cw / 2, [[0, '#2f3338'], [0.5, '#4a5058'], [1, '#2f3338']]); g.fill();
+  g.strokeStyle = '#1d1e21'; g.lineWidth = 0.02; g.stroke();
+  g.fillStyle = '#1d1e21'; for (const x of [cx - cw / 2 + 0.02, cx + cw / 2 - 0.06]) for (const y of [cy + 0.02, cy + cl - 0.06]) g.fillRect(x, y, 0.04, 0.04); // posts
+  // work lights on the canopy's front edge
+  g.fillStyle = '#f4f1c8';
+  circle(g, cx - cw / 2 + 0.1, cy + 0.03, 0.035); g.fill(); circle(g, cx + cw / 2 - 0.1, cy + 0.03, 0.035); g.fill();
+}
+
 function boomLift(g, w, l, { color }) {
   const paint = color || '#e07b1a';
   const cy = l * 0.6;
@@ -550,7 +602,7 @@ const DRAW = {
   car, pickup, 'box-truck-26': boxTruck, 'semi-53': semi, 'trailer-53': trailer,
   'container-20': (g, w, l, o) => container(g, w, l, o, '#a6452c'),
   'container-40': (g, w, l, o) => container(g, w, l, o, '#2e6a96'),
-  forklift, 'boom-lift': boomLift, 'dumpster-30yd': dumpster, 'generator-towable': generator,
+  forklift, 'avant-630': avant630, 'boom-lift': boomLift, 'dumpster-30yd': dumpster, 'generator-towable': generator,
   'parking-stall': parkingStall, 'portable-toilet': toilet, 'banquet-table-8': banquet,
   'round-table-60': roundTable, person,
   'basketball-court': basketball, 'tennis-court': tennis, 'pickleball-court': pickleball,
