@@ -12,6 +12,7 @@
  * the real camera every frame, and window panes ("decals") get a depth offset.
  */
 import { FT, resolveTent, roofFaces, legs, wallBays, outward, lightness, SIDES } from './tentspec.js';
+import { vehicleMesh } from './vehicle3d.js';
 
 const rgb = (hex) => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
 
@@ -497,7 +498,8 @@ const c_w = (c) => c.width, c_h = (c) => c.height;
 /* ======================================================= Mapbox custom layer */
 /**
  * A custom layer that draws `tents` ({ center:[lon,lat], rotation, width, length,
- * tent, color, ballast }) standing on the map. Geometry is built in metres around
+ * tent, color, ballast }) standing on the map. An item with `model` (a catalog id
+ * with a mesh in vehicle3d.js, plus optional `paint`) is drawn as that vehicle. Geometry is built in metres around
  * one origin (east, north, up), so float32 stays precise at site scale.
  */
 export function tentLayer(id = 'lm-tents3d') {
@@ -520,7 +522,8 @@ export function tentLayer(id = 'lm-tents3d') {
           const e = x - w / 2, n = l / 2 - y;
           return [ox + e * cs + n * sn, oy - e * sn + n * cs, z];
         };
-        for (const f of tentMesh(w, l, t.tent, { color: t.color, ballast: t.ballast }).faces) faces.push({ ...f, pts: f.pts.map(toWorld) });
+        const own = t.model ? vehicleMesh(t.model, w, l, { color: t.paint }) : null;
+        for (const f of own || tentMesh(w, l, t.tent, { color: t.color, ballast: t.ballast }).faces) faces.push({ ...f, pts: f.pts.map(toWorld) });
       }
     }
     mesh.set(faces);

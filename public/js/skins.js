@@ -353,7 +353,11 @@ function forklift(g, w, l, { color }) {
  * (100.3 in long): front axle 16.9 in behind the attachment plate, 47.2 in
  * wheelbase, 36.2 in rear overhang. Front of the machine (boom, plate) is up.
  */
-function avant630(g, w, l, { color }) {
+function avant630(g, w, l, { color, floor }) {
+  if (floor) { // 3D view: the loader is drawn by the 3D layer, the plan keeps only a soft shadow
+    g.fillStyle = 'rgba(0,0,0,.28)'; rr(g, w * 0.04, l * 0.03, w * 0.92, l * 0.95, 0.2); g.fill();
+    return;
+  }
   const paint = color || '#3fa21f';
   const cx = w / 2, k = l / 2.548; // scale if the user resizes the object
   const fy = 0.429 * k, ry = 1.628 * k;

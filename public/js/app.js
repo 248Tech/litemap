@@ -7,6 +7,7 @@ import { openObjectDialog, objectThumb } from './object-upload.js';
 import { skinUrl, skinThumb, hasSkin, ballastPad } from './skins.js';
 import { isTent, cleanTent, resolveTent } from './tentspec.js';
 import { tentLayer } from './tent3d.js';
+import { has3d } from './vehicle3d.js';
 import { openTentBuilder } from './tent-builder.js';
 import { IMAGERY_SOURCES, IMAGERY_BY_ID, tileUrls, tileSizeOf, defaultGibsDate, customSource, coversBox } from './imagery.js';
 
@@ -44,6 +45,7 @@ const state = {
   showLabels: ls.get('litemap:labels', true),
   showSkins: ls.get('litemap:skins', true),
   showBallast: ls.get('litemap:ballast', true),
+  showBuildings: ls.get('litemap:buildings', true),
   show3d: ls.get('litemap:3d', false),
   site: blankSite(),
   dirty: false,
@@ -279,19 +281,42 @@ function scheduleShapes() {
 }
 /* Tents stand up in 3D (tent3d.js custom layer) when the 3D switch is on. */
 const tents3d = tentLayer();
+/**
+ * Real-height buildings from the style's own vector data, under our overlays, while 3D is on.
+ * Plain Satellite has no building data (no `composite` source), so it is skipped there.
+ */
+function syncBuildings() {
+  const id = 'lm-buildings';
+  try {
+    if (!(state.show3d && state.showBuildings)) { if (map.getLayer(id)) map.removeLayer(id); return; }
+    if (map.getLayer(id) || !map.getSource('composite')) return;
+    const imagery = state.mapType === 'hybrid' || state.mapType === 'satellite'; // keep the photo readable under them
+    map.addLayer({
+      id, type: 'fill-extrusion', source: 'composite', 'source-layer': 'building', minzoom: 14,
+      filter: ['==', ['get', 'extrude'], 'true'],
+      paint: {
+        'fill-extrusion-color': state.mapType === 'light' ? '#e4e3df' : '#d8d5cc',
+        'fill-extrusion-height': ['get', 'height'], 'fill-extrusion-base': ['get', 'min_height'],
+        'fill-extrusion-opacity': imagery ? 0.72 : 0.92, 'fill-extrusion-vertical-gradient': true,
+      },
+    }, 'lm-fill');
+  } catch { map.once('idle', syncBuildings); }
+}
 function sync3d() {
   // our layers exist once the style is ready (ensureLayers re-runs this then). Not isStyleLoaded():
   // that stays false while imagery tiles download, which skipped the 3D layer on slow connections.
   if (!map?.getLayer('lm-fill')) return;
+  syncBuildings();
   const has = Boolean(map.getLayer(tents3d.id));
   try {
     if (!state.show3d) { if (has) map.removeLayer(tents3d.id); return; }
     if (!has) map.addLayer(tents3d);
   } catch { map.once('idle', sync3d); return; } // style mid-update: try again when the map settles
   tents3d.setTents(state.features
-    .filter((f) => f.properties.kind === 'reference' && isTent(f.properties.reference.templateId) && !f.properties.reference.objectId)
+    .filter((f) => f.properties.kind === 'reference' && (isTent(f.properties.reference.templateId) || has3d(f.properties.reference.templateId)) && !f.properties.reference.objectId)
     .map((f) => {
       const r = f.properties.reference;
+      if (has3d(r.templateId)) return { center: r.center, rotation: r.rotation, width: r.width, length: r.length, model: r.templateId, paint: skinTint(r, f.properties.color) };
       return { center: r.center, rotation: r.rotation, width: r.width, length: r.length, tent: r.tent, color: skinTint(r, f.properties.color) || '#f6f6f3', ballast: state.showBallast };
     }));
 }
@@ -384,7 +409,8 @@ const skinCorners = (r, center = r.center, rotation = r.rotation) => imageCorner
   center, shape: 'rect', width: r.width + 2 * skinPad(r), length: (r.shape === 'circle' ? r.width : r.length) + 2 * skinPad(r), rotation,
 })));
 function skinSpec(r, color, center = r.center, rotation = r.rotation, opacity = 1) {
-  const opts = isTent(r.templateId) ? { tent: r.tent, floor: state.show3d } : {};
+  // in 3D the tent roof / vehicle body is drawn by the 3D layer; the sprite keeps only the floor / shadow
+  const opts = isTent(r.templateId) ? { tent: r.tent, floor: state.show3d } : has3d(r.templateId) ? { floor: state.show3d } : {};
   const url = skinUrl(r.templateId, r.width, r.shape === 'circle' ? r.width : r.length, skinTint(r, color), skinPad(r), opts);
   return url ? { url, coordinates: skinCorners(r, center, rotation), opacity } : null;
 }
@@ -2431,6 +2457,8 @@ function bindChrome() {
   $('#show-skins').onchange = (e) => { state.showSkins = e.target.checked; ls.set('litemap:skins', state.showSkins); syncAllViews(); renderGhost(); };
   $('#show-3d').checked = state.show3d;
   $('#show-3d').onchange = (e) => set3d(e.target.checked);
+  $('#show-buildings').checked = state.showBuildings;
+  $('#show-buildings').onchange = (e) => { state.showBuildings = e.target.checked; ls.set('litemap:buildings', state.showBuildings); sync3d(); };
   $('#show-ballast').checked = state.showBallast;
   $('#show-ballast').onchange = (e) => { state.showBallast = e.target.checked; ls.set('litemap:ballast', state.showBallast); syncAllViews(); renderGhost(); };
   $('#site-addr').addEventListener('click', editAddress);
