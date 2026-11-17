@@ -5,6 +5,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ## [Unreleased]
 
 ### Added
+- **AI Imagine** tool (<kbd>G</kbd>): choose 1×1 to 4×4 map tiles, enter a prompt, and an AI (OpenAI `gpt-image-1`) redraws that area in place of what's there. The result is a to-scale object you can fade, move, delete and save with the site. New `POST /api/v1/imagine`; needs `OPENAI_API_KEY` on the server (off otherwise, and not in the online demo).
 - **Avant 630 loader** in Vehicles & equipment, with a top-down skin drawn to the manufacturer's dimensions (100.3 in long, 50.8 in wide on wide tyres; axle positions, boom and canopy to scale).
 - 3D models for the Avant 630 and 17 more catalog objects (cars, pickups, box trucks, tractor-trailers, containers, forklifts, boom lifts, dumpsters, generators, restrooms, banquet and round tables, people, stages and dance floors). They stand up on the map when **3D** is on, with the flat sprite reduced to a ground shadow.
 - **3D city** map type (Mapbox Standard): detailed 3D buildings, landmarks and trees with proper lighting. Picking it turns 3D on and tilts the map, and tents and equipment stand in the scene.

@@ -143,6 +143,18 @@ export function buildOpenApi(serverUrl) {
           responses: { 201: ok('Created', ref('UploadedObject')), 413: { description: 'Image larger than 8 MB' }, 415: { description: 'Not a PNG, WebP or JPEG' }, ...errors(400, 401) },
         },
       },
+      '/api/v1/imagine': {
+        post: {
+          tags: ['Objects'], operationId: 'imagine', summary: 'AI Imagine: redraw map tiles from a prompt',
+          description: 'Takes the block of whole map tiles (`tiles` per side, at `zoom`) closest to `lon`/`lat`, fetches its satellite picture, has OpenAI redraw it from `prompt`, and saves the result as an uploaded object sized to the area. Place it on a site as a `reference` feature with `reference.objectId`, rotation 0 and the returned `area.center`. Needs `OPENAI_API_KEY`; each call is billed to it and can take up to a minute.',
+          requestBody: { required: true, content: json({ type: 'object', required: ['lon', 'lat', 'prompt'], properties: {
+            lon: { type: 'number' }, lat: { type: 'number' }, zoom: { type: 'number', default: 18, description: 'Tile zoom, 14–20.' },
+            tiles: { type: 'integer', minimum: 1, maximum: 4, default: 2, description: 'Tiles per side.' },
+            prompt: { type: 'string', minLength: 3, maxLength: 1000 }, quality: { type: 'string', enum: ['low', 'medium', 'high'], default: 'medium' },
+          } }) },
+          responses: { 201: ok('Rendered', { type: 'object', properties: { object: ref('UploadedObject'), area: { type: 'object', properties: { z: { type: 'integer' }, tiles: { type: 'integer' }, bbox: { type: 'array', items: { type: 'number' } }, center: { type: 'array', items: { type: 'number' } }, width: { type: 'number' }, length: { type: 'number' } } } } }), 429: { description: 'Too many renders running' }, ...errors(400, 401, 502, 503, 504) },
+        },
+      },
       '/api/v1/objects/{objectId}': {
         parameters: [{ name: 'objectId', in: 'path', required: true, schema: { type: 'string' } }],
         get: { tags: ['Objects'], operationId: 'getObject', summary: 'Get an uploaded object', responses: { 200: ok('Object', ref('UploadedObject')), ...errors(401, 404) } },

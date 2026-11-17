@@ -2,6 +2,7 @@
  * LiteMap UI: Mapbox GL JS + shared geodesy core. No build step, no dependencies.
  */
 import * as geo from './geo.js';
+import { tileArea, MAX_TILES } from './tiles.js';
 import { REFERENCE_OBJECTS, REFERENCE_CATEGORIES, REFERENCE_BY_ID, addReferenceObjects } from './references.js';
 import { openObjectDialog, objectThumb } from './object-upload.js';
 import { skinUrl, skinThumb, hasSkin, ballastPad } from './skins.js';
@@ -52,6 +53,7 @@ const state = {
   template: null,        // catalog template for the reference tool
   apiKey: ls.get('litemap:apiKey'),
   pen: { color: '#ff9f0a', width: 4, ...ls.get('litemap:pen', {}) },
+  imagine: { tiles: Math.min(MAX_TILES, Math.max(1, Number(ls.get('litemap:imagine:tiles', 2)) || 2)), quality: ls.get('litemap:imagine:quality', 'medium'), prompt: '', busy: false, error: null, startedAt: 0 },
   objects: [],           // uploaded object library (cut-out images with a real size)
   objectsLoaded: false,
   models: [],            // saved 3D models from the 3D Modeler (/modeler)
@@ -836,6 +838,9 @@ function onMapClick(e, target) {
     case 'reference':
       placeReference(ll);
       break;
+    case 'imagine':
+      if (!state.imagine.busy) map.easeTo({ center: ll, duration: 350 });
+      break;
     case 'text':
       placeText(ll);
       break;
@@ -1000,11 +1005,14 @@ function setTool(tool) {
   $('#map').classList.toggle('drawing', tool !== 'select');
   $('#catalog').hidden = tool !== 'reference';
   $('#pen').hidden = tool !== 'drawing';
+  $('#imagine').hidden = tool !== 'imagine';
+  if (tool !== 'imagine') clearScratch('__imagine');
   $('#map').classList.toggle('pen', tool === 'drawing');
   if (map) { if (tool === 'drawing') { map.dragPan.disable(); map.dragRotate.disable(); } else if (!drag) { map.dragPan.enable(); map.dragRotate.enable(); } }
   if (tool === 'drawing') { renderPen(); openPanel(); }
   if (tool !== 'reference') clearScratch('__ghost');
   if (tool !== 'select' && state.selectedId) select(null);
+  if (tool === 'imagine') { renderImagine(); drawImagineBox(); openPanel(); }
   if (tool === 'reference') { renderCatalog(); openPanel(); if (!state.objectsLoaded && !EMBED) loadObjects(); }
   updateHint();
 }
@@ -1017,6 +1025,7 @@ function updateHint() {
   else if (t === 'marker') hint('Click to drop a pin');
   else if (t === 'text') hint('Click where the text box should go');
   else if (t === 'drawing') hint('Drag to draw · pick colour and width in the panel · <kbd>Esc</kbd> to stop drawing (the map pans again)');
+  else if (t === 'imagine') hint('The dashed box shows the tiles that will be redrawn · pan or click the map to move it · describe the change in the panel');
   else if (t === 'reference') hint(state.template ? `Click to place <b>${esc(state.template.name)}</b>` : 'Pick an object in the panel, then click the map');
   else if (state.selectedId && !READONLY && byId(state.selectedId)?.properties.reference?.objectId) hint(byId(state.selectedId).properties.reference.lockAspect ? 'Drag a corner to scale · <kbd>Shift</kbd>-drag stretches · ↻ rotates · ✥ moves' : 'Drag a corner to stretch · <kbd>Shift</kbd>-drag keeps proportions · ↻ rotates · ✥ moves');
   else if (state.selectedId && !READONLY) hint('Drag handles to edit · <kbd>Shift</kbd> constrains · <kbd>Alt</kbd>-click a vertex to delete it · <kbd>Del</kbd> removes');
@@ -1270,6 +1279,87 @@ function renderPen() {
     <svg class="pen-preview" viewBox="0 0 200 30" aria-hidden="true"><path d="M8 20 C 50 2, 80 30, 120 14 S 180 8, 192 18" fill="none" stroke="${color}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round"/></svg>
     <p class="muted small">Drag on the map to draw. Strokes are saved with the site; select one to recolour, resize, move (✥) or delete it.</p>`;
 }
+/* ================================================================ AI Imagine
+ * Pick a block of whole map tiles, describe a change, and the server has an AI redraw that
+ * area (server/imagine.js). The result comes back as an uploaded object sized to the tiles, so
+ * it is placed, faded, moved, saved with the site and deleted like any other object.
+ */
+const imagineArea = () => {
+  const c = map.getCenter();
+  return tileArea(c.lng, c.lat, map.getZoom(), state.imagine.tiles);
+};
+function drawImagineBox() {
+  if (!map || state.tool !== 'imagine') { clearScratch('__imagine'); return; }
+  const a = imagineArea(), [w, s, e, n] = a.bbox;
+  scratchView('__imagine').overlay('i', 'polygon', [[w, s], [e, s], [e, n], [w, n]], dashed('#bf5af2', 2.5));
+  const el = $('#im-size');
+  if (el) el.textContent = `${a.tiles}×${a.tiles} tiles at zoom ${a.z} · ${geo.fmtDims(a.width, a.length, state.units, 'rect')}`;
+}
+function renderImagine() {
+  const im = state.imagine, box = $('#imagine');
+  const on = Boolean(mapConfig?.imagine);
+  box.innerHTML = `
+    <h2>AI Imagine</h2>
+    <p class="muted small">Choose how many map tiles to redraw, describe what you want, and an AI renders it in place of what's there. The result is a to-scale layer you can fade, move or delete.</p>
+    ${on ? '' : '<div class="result bad">AI Imagine needs <b>OPENAI_API_KEY</b> in the server\'s .env (then restart). It is not available in the online demo.</div>'}
+    <div class="field"><label>Tiles</label><div class="seg" id="im-tiles">${Array.from({ length: MAX_TILES }, (_, i) => `<button type="button" data-n="${i + 1}" class="${im.tiles === i + 1 ? 'on' : ''}">${i + 1}×${i + 1}</button>`).join('')}</div></div>
+    <div id="im-size" class="muted small"></div>
+    <div class="field"><label>Prompt</label><textarea id="im-prompt" rows="4" maxlength="1000" placeholder="Replace the grass with a gravel parking lot, and add a white 40×60 ft tent with picnic tables…">${esc(im.prompt)}</textarea></div>
+    <div class="field"><label>Quality</label><select id="im-quality">${[['low', 'Low (fastest, cheapest)'], ['medium', 'Medium'], ['high', 'High (slowest)']].map(([v, t]) => `<option value="${v}"${im.quality === v ? ' selected' : ''}>${t}</option>`).join('')}</select></div>
+    <div class="row-btns"><button type="button" class="btn primary" id="im-go"${on && !im.busy ? '' : ' disabled'}>${im.busy ? 'Rendering…' : 'Imagine'}</button></div>
+    <div id="im-status" class="result${im.error ? ' bad' : ''}" ${im.busy || im.error ? '' : 'hidden'}>${im.busy ? 'Rendering with AI, this usually takes 20–60 seconds…' : esc(im.error || '')}</div>
+    <p class="muted small">The satellite picture of the selected tiles and your prompt are sent to OpenAI, and each render is billed to the server's key. AI output is an illustration, not survey data: measure on the real imagery.</p>`;
+  drawImagineBox();
+}
+function bindImagine() {
+  const box = $('#imagine');
+  box.addEventListener('click', (e) => {
+    const n = e.target.closest('#im-tiles [data-n]')?.dataset.n;
+    if (n) {
+      state.imagine.tiles = Number(n);
+      ls.set('litemap:imagine:tiles', state.imagine.tiles);
+      $$('#im-tiles button').forEach((b) => b.classList.toggle('on', b.dataset.n === n));
+      drawImagineBox();
+    } else if (e.target.closest('#im-go')) runImagine();
+  });
+  box.addEventListener('input', (e) => { if (e.target.id === 'im-prompt') state.imagine.prompt = e.target.value; });
+  box.addEventListener('change', (e) => { if (e.target.id === 'im-quality') { state.imagine.quality = e.target.value; ls.set('litemap:imagine:quality', state.imagine.quality); } });
+}
+async function runImagine() {
+  const im = state.imagine;
+  if (im.busy || !map) return;
+  const prompt = im.prompt.trim();
+  if (prompt.length < 3) return toast('Describe what to draw first', true);
+  const c = map.getCenter();
+  im.busy = true; im.error = null;
+  renderImagine();
+  const t0 = Date.now();
+  const tick = setInterval(() => { const s = $('#im-status'); if (s && im.busy) s.textContent = `Rendering with AI… ${Math.round((Date.now() - t0) / 1000)} s (usually 20–60 s)`; }, 1000);
+  try {
+    const r = await api('POST', '/imagine', { lon: c.lng, lat: c.lat, zoom: map.getZoom(), tiles: im.tiles, prompt, quality: im.quality });
+    state.objects = [r.object, ...state.objects.filter((o) => o.id !== r.object.id)];
+    const tpl = objTemplate(r.object);
+    const f = normalize({
+      type: 'Feature', geometry: { type: 'Point', coordinates: r.area.center },
+      properties: {
+        kind: 'reference', name: r.object.name, color: tpl.color,
+        reference: { templateId: null, objectId: r.object.id, shape: 'rect', width: r.area.width, length: r.area.length, rotation: 0, opacity: 1, lockAspect: true },
+      },
+    });
+    im.busy = false;
+    setTool('select');
+    addFeature(f);
+    toast('Rendered. Use the opacity slider to compare it with the real imagery.');
+  } catch (e) {
+    im.error = e.message;
+    toast(e.message, true);
+  } finally {
+    clearInterval(tick);
+    im.busy = false;
+    if (state.tool === 'imagine') renderImagine();
+  }
+}
+
 function bindPen() {
   const box = $('#pen');
   box.addEventListener('click', (e) => {
@@ -2421,6 +2511,7 @@ function openPanel() { $('#panel').classList.add('open'); }
 function bindChrome() {
   bindImagery();
   bindPen();
+  bindImagine();
   $$('.tool[data-tool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool)));
   $('#btn-undo').onclick = undo;
   $('#btn-fit').onclick = () => zoomTo(state.features);
@@ -2508,6 +2599,7 @@ function bindChrome() {
       case 'p': case 'P': setTool('marker'); break;
       case 'r': case 'R': setTool('reference'); break;
       case 'u': case 'U': if (!READONLY) uploadObject(); break;
+      case 'g': case 'G': if (!READONLY) setTool('imagine'); break;
       case 'f': case 'F': zoomTo(state.features); break;
       case 'i': case 'I': toggleImageryHidden(); break;
       case 'e': case 'E': toggleEnhance(); break;
@@ -2571,6 +2663,7 @@ async function initMap() {
   labelScale();
   map.on('moveend', debounce(() => { if (!EMBED) ls.set('litemap:view', currentView()); }, 400));
   map.on('moveend', () => {
+    if (state.tool === 'imagine') drawImagineBox();
     if (imagery.active) { refreshCenterDate(); renderImageryBadge(); }
     if (imagery.open && !$('#imagery').contains(document.activeElement)) renderImagery();
   });

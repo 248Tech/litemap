@@ -75,6 +75,8 @@
         <svg viewBox="0 0 24 24"><path d="M5 6V4h14v2"/><path d="M12 4v16"/><path d="M9 20h6"/></svg><span>Text</span></button>
       <button type="button" class="tool hide-readonly" data-tool="drawing" title="Freehand draw (B)">
         <svg viewBox="0 0 24 24"><path d="M3 20c3-1 4-4 6-6s5-2 6-5-1-5-3-4"/><path d="M15 4l5 5-9 9-5 1 1-5z"/></svg><span>Draw</span></button>
+      <button type="button" class="tool hide-readonly" data-tool="imagine" title="AI Imagine: pick map tiles and describe what to draw there (G)">
+        <svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M18.5 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg><span>Imagine</span></button>
       <div class="tool-sep"></div>
       <button type="button" class="tool" id="btn-imagery" title="Imagery layers: newer satellite and aerial sources (I toggles the overlay)">
         <svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg><span>Imagery</span></button>
@@ -96,6 +98,7 @@
       <button type="button" class="panel-grip" id="panel-grip" aria-label="Toggle panel"></button>
       <section id="imagery" class="card" hidden></section>
       <section id="pen" class="card" hidden></section>
+      <section id="imagine" class="card" hidden></section>
       <section id="catalog" class="card" hidden>
         <h2>Place a to-scale object</h2>
         <p class="muted small">Pick an object, then click the map to drop it. Adjust size, rotation, and clearance afterwards. Upload your own (<kbd>U</kbd>) from a photo or drawing.</p>

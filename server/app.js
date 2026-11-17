@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { Store, newId } from './store.js';
 import { ObjectLibrary, MAX_IMAGE_BYTES } from './objects.js';
+import { parseImagine, fetchAreaImage, editImage } from './imagine.js';
 import { ModelLibrary } from './models.js';
 import { buildGlb, fileStem } from '../public/js/modelfile.js';
 import { buildOpenApi, API_VERSION } from './openapi.js';
@@ -175,13 +176,14 @@ export async function createApp(cfg, deps = {}) {
     status: 'ok', version: API_VERSION,
     mapbox: Boolean(cfg.mapbox.token),
     skyfi: Boolean(cfg.skyfi.apiKey),
+    imagine: Boolean(cfg.openai.apiKey),
     authRequired: keyHashes.length > 0,
   }), { public: true });
 
   route('GET', '/api/v1/map/config', (_req, res) => {
     if (!cfg.mapbox.token) throw new HttpError(503, 'mapbox_not_configured', 'Mapbox is not configured. Set MAPBOX_TOKEN in .env and restart.');
     res.setHeader('Cache-Control', 'no-store');
-    return { provider: 'mapbox', accessToken: cfg.mapbox.token, styles: mapbox.STYLES, skyfi: Boolean(cfg.skyfi.apiKey) };
+    return { provider: 'mapbox', accessToken: cfg.mapbox.token, styles: mapbox.STYLES, skyfi: Boolean(cfg.skyfi.apiKey), imagine: Boolean(cfg.openai.apiKey) };
   }, { public: true });
 
   route('GET', '/api/v1/reference-objects', () => ({ items: REFERENCE_OBJECTS }), { public: true });
@@ -302,6 +304,22 @@ export async function createApp(cfg, deps = {}) {
     const o = await objects.create(buf, { name: query.get('name'), width: query.get('width'), length: query.get('length') });
     res.statusCode = 201;
     return presentObject(req, o);
+  });
+
+  /* ---- AI Imagine: redraw a block of map tiles from a prompt, saved as a to-scale object */
+  let imagining = 0;
+  route('POST', '/api/v1/imagine', async (req, res) => {
+    if (!cfg.openai.apiKey) throw new HttpError(503, 'ai_not_configured', 'AI Imagine needs OPENAI_API_KEY in .env (then restart the server).');
+    const job = parseImagine(await readJson(req));
+    if (imagining >= 2) throw new HttpError(429, 'busy', 'Two AI renders are already running. Try again in a minute.');
+    imagining++;
+    try {
+      const image = await fetchAreaImage(cfg.mapbox, job.area);
+      const png = await editImage(cfg.openai, image, job);
+      const o = await objects.create(png, { name: `AI: ${job.prompt.slice(0, 70)}`, width: job.area.width, length: job.area.length });
+      res.statusCode = 201;
+      return { object: presentObject(req, o), area: job.area };
+    } finally { imagining--; }
   });
 
   route('GET', '/api/v1/objects/:oid', (req, _res, { params }) => presentObject(req, objects.get(params.oid)));

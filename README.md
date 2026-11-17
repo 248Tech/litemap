@@ -205,6 +205,10 @@ Add your own county service for everyone by appending an entry to `public/js/ima
 
 > **Licensing:** Esri World Imagery and Wayback are free to view, but Esri's terms require an ArcGIS account for production use outside ArcGIS. NAIP and NASA GIBS are public domain. County imagery follows each county's open-data terms.
 
+### AI Imagine
+
+Pick the **Imagine** tool (<kbd>G</kbd>), choose 1×1 to 4×4 map tiles (a dashed box shows exactly which ones; pan or click the map to move it), describe what you want, and an AI redraws that area in place of what's there. The result is saved as a to-scale object pinned to the tiles, so you can fade it with the opacity slider, move it, delete it, or keep it with the site. Add `OPENAI_API_KEY=` to `.env` to turn it on (the model is `gpt-image-1`, changeable with `OPENAI_IMAGE_MODEL`). The satellite picture of the selected tiles and your prompt are sent to OpenAI and each render is billed to your key, so set `LITEMAP_API_KEY` before exposing the server. The result is an illustration, not survey data. It is not available in the online demo.
+
 ### Accuracy
 
 The math is effectively exact. Distances use Vincenty's formula; areas use an ellipsoid-scaled local plane, with authalic-sphere excess for very large shapes. In practice **the imagery is the limit**: satellite imagery is typically within about 1–3 m horizontally, can be a year or more old, and shows some building lean. Treat results as **quote-grade, not survey-grade**, and verify critical clearances (property lines, overhead lines, slope) before installing.
@@ -312,6 +316,8 @@ Passing `origin=` pins both the `postMessage` target and the accepted sender. Se
 | `MAPBOX_SERVER_TOKEN` | `MAPBOX_TOKEN` | Token for server-side geocoding and static images |
 | `LITEMAP_AUTO_ADDRESS` | `1` | Look up each site's street address from its location on save (Mapbox reverse geocoding). `0` turns it off; typed addresses always work |
 | `SKYFI_API_KEY` | | Enables SkyFi archive search |
+| `OPENAI_API_KEY` | | Enables AI Imagine (tiles redrawn from a prompt) |
+| `OPENAI_IMAGE_MODEL` | `gpt-image-1` | OpenAI image-edit model AI Imagine uses |
 | `PORT` / `HOST` | `8787` / `0.0.0.0` | Listen address |
 | `PUBLIC_URL` | from the request | Base URL for links in API responses |
 | `DATA_DIR` | `./data` | Sites (`sites.json`) and uploaded objects |
@@ -350,6 +356,7 @@ Storage is a single JSON file written atomically, which is fine for thousands of
 - The Mapbox token you configure is a **public** browser token by design. Restrict it to your domains in your Mapbox account.
 - Set `LITEMAP_API_KEY` before exposing the API to the internet, and set `CORS_ORIGINS`.
 - Uploaded object images are served from unguessable, public URLs so that maps and embeds can show them. Listing, editing and deleting objects require the API key.
+- AI Imagine is the one feature that sends data out: the selected tiles' satellite picture and your prompt go to OpenAI, only when you press Imagine and only if the server has an `OPENAI_API_KEY`.
 - Object cut-out and AI enhancement run entirely in the browser. Images are only sent to your server when you save.
 
 See [SECURITY.md](SECURITY.md) to report a vulnerability.

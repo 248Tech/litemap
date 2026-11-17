@@ -23,6 +23,12 @@ export function loadConfig(env = process.env) {
     },
     // Fill each site's address from its location (Mapbox reverse geocoding) when none is typed in.
     autoAddress: !['0', 'false', 'off'].includes(String(env.LITEMAP_AUTO_ADDRESS ?? '').toLowerCase()),
+    // "AI Imagine" (server/imagine.js): OpenAI image edits. Off without a key.
+    openai: {
+      apiKey: env.OPENAI_API_KEY || null,
+      model: env.OPENAI_IMAGE_MODEL || 'gpt-image-1',
+      baseUrl: (env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, ''),
+    },
     skyfi: {
       apiKey: env.SKYFI_API_KEY || null,
       baseUrl: (env.SKYFI_API_URL || 'https://app.skyfi.com/platform-api').replace(/\/$/, ''),

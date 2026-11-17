@@ -98,6 +98,7 @@ const ROUTES = [
   ['DELETE', /^\/sites\/([\w-]+)$/, (_q, _b, [id]) => { getSite(id); store(KEY.sites, sites().filter((s) => s.id !== id)); return [204, null]; }],
   ['GET', /^\/sites\/[\w-]+\/snapshot$/, () => needsServer('Saving a snapshot image')],
   ['GET', /^\/objects$/, () => ({ items: [] })],
+  ['POST', /^\/imagine$/, () => needsServer('AI Imagine')],
   ['POST', /^\/objects/, () => needsServer('Uploading your own objects')],
   ['GET', /^\/models$/, () => ({ items: models().map(presentModel) })],
   ['POST', /^\/models$/, (_q, body) => {
